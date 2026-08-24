@@ -1,0 +1,512 @@
+// FitNexus — Prisma schema
+// Scope for now: organization (tenant) + owner account + OTP-based
+// registration/login/password-reset, matching the Angular auth flows.
+// Branch/member/plan models get added as those modules are built.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  BRANCH_MANAGER
+  TRAINER
+  FRONT_DESK
+  STAFF
+  MEMBER
+}
+
+// One row per screen the app has (or will have) — used as the Screen
+// axis of the RolePermission matrix. New screens get a new value here
+// plus a seeded row per role; nothing else needs to change to support
+// them ahead of time (same "build inert" pattern as NotificationType).
+enum Screen {
+  DASHBOARD
+  EMPLOYEES
+  ATTENDANCE
+  LEADS
+  NOTIFICATIONS
+  BRANCHES
+  MEMBERS
+}
+
+enum OtpPurpose {
+  SIGNUP
+  PASSWORD_RESET
+}
+
+enum OtpChannel {
+  EMAIL
+  PHONE
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  NOT_ACTIVE
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  TRIAL_SCHEDULED
+  TRIAL_COMPLETED
+  CONVERTED
+  LOST
+}
+
+enum EmployeeRole {
+  MANAGER
+  TRAINER
+  FRONT_DESK
+  OTHER
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Organization {
+  // Unique, auto-generated id (cuid — collision-resistant, sortable,
+  // no external call needed unlike uuid-in-app-code).
+  id String @id @default(cuid())
+
+  // Full organization details, captured at registration time.
+  name      String // organization name
+  ownerName String
+  email     String
+  phone     String
+
+  // NOT_ACTIVE until the owner verifies both email and phone OTPs
+  // (see AuthService.verifyRegisterOtp); an admin can also flip this
+  // to NOT_ACTIVE later to suspend an organization.
+  status OrganizationStatus @default(NOT_ACTIVE)
+
+  // Explicit created/updated timestamps — createdAt is set once at
+  // insert time and never changes; updatedAt is bumped by Prisma on
+  // every update (e.g. when status flips to ACTIVE).
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  branches  Branch[]
+  leads     Lead[]
+  employees Employee[]
+
+  notifications        Notification[]
+  notificationSetup    NotificationSetup?
+  notificationConfigs  NotificationConfig[]
+  rolePermissions      RolePermission[]
+
+  @@map("organizations")
+}
+
+model Branch {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Location IS the branch's identifying field now — there's no separate
+  // name, and no separate city/state/country columns either. It's a
+  // short single-line label for where the branch is (e.g. "Anna Nagar,
+  // Chennai") — mandatory, entered in a plain input box, and unique per
+  // organization. Full address detail belongs in `address` below, not
+  // here.
+  location String
+
+  // Free-text detail (full street address, landmark, floor/unit,
+  // directions, etc.) — entered in a multi-line textarea, fully
+  // separate from location, always optional.
+  address String?
+  phone   String?
+  email   String?
+
+  // Branch-wise settings — every branch operates independently for
+  // pricing/compliance per the product spec (cross-branch plans are
+  // composed from these, not priced separately at the chain level).
+  // Timezone has no dedicated input — it just defaults to UTC and can
+  // be corrected later if a per-branch value is ever needed.
+  timezone        String  @default("UTC")
+  currency        String  @default("INR") // ISO 4217 code
+  taxRatePercent  Decimal @db.Decimal(5, 2)
+  defaultLanguage String  @default("en")
+
+  status BranchStatus @default(ACTIVE)
+
+  // The org's first branch is always the main branch automatically (no
+  // prompt needed). For every branch after that, the owner can opt in
+  // via a checkbox — setting one main branch unsets whichever branch
+  // held it before, enforced in BranchesService, not at the DB level.
+  isMainBranch Boolean @default(false)
+
+  // Manually entered for now (no Members module yet) — feeds the
+  // upcoming branch+member-based subscription pricing calculation.
+  // Mandatory at entry (validated in the DTO); no default here since
+  // every branch should have a deliberate value, not a silent 0.
+  memberCount Int
+
+  leads     Lead[]
+  employees Employee[]
+  staff     User[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The same location text can't be used twice within an organization —
+  // address is deliberately NOT part of this uniqueness check, since
+  // it's just free-text extra detail, not what identifies "the same
+  // place". The service layer also runs a case-insensitive/trimmed
+  // pre-check so a duplicate gets a friendly error before this
+  // constraint would otherwise reject it outright.
+  @@unique([organizationId, location], name: "branches_org_location_unique")
+  @@map("branches")
+}
+
+model Lead {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Which branch this lead is interested in — leads are tracked
+  // chain-wide (owners see all of them) but each one belongs to exactly
+  // one branch, matching the branch-scoped-by-default model everything
+  // else in the product follows.
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  name  String
+  phone String
+  email String?
+
+  // Free-text options (Walk-in, Referral, Instagram, ...) maintained as
+  // a shared frontend constant rather than a DB enum — same pattern as
+  // Branch.currency, so the list can change without a migration.
+  source String?
+
+  interestedPlan String?
+
+  // Real link to an Employee record (Employees module shipped after this
+  // field was originally free text — see git history). Nullable/SetNull
+  // so deleting the employee doesn't delete the lead, it just clears the
+  // assignment.
+  assignedToEmployeeId String?
+  assignedToEmployee   Employee? @relation(fields: [assignedToEmployeeId], references: [id], onDelete: SetNull)
+
+  // Who created this lead — set once, at creation, from the JWT. Staff
+  // (Trainer/Manager/Front Desk) only ever see leads they personally
+  // created (see LeadsService.findAll); the owner sees everything.
+  // Nullable/SetNull so deleting the user doesn't delete the lead.
+  createdByUserId String?
+  createdByUser   User?   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  status     LeadStatus @default(NEW)
+  // Only meaningful when status is LOST — the service enforces this is
+  // present when a lead is marked lost, and logs it as a timeline entry.
+  lostReason String?
+  // Only meaningful when status is CONVERTED — the "Conclude" checkbox's
+  // comment for the converted outcome (lostReason plays the same role
+  // for the LOST outcome). Service enforces this is present when a lead
+  // is concluded as converted, and logs it as a timeline entry.
+  concludeComment String?
+
+  // Date + time, not just a date — drives the overdue-follow-up badge
+  // on the card/list with time-of-day precision.
+  nextFollowUpAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activities LeadActivity[]
+
+  @@map("leads")
+}
+
+model LeadActivity {
+  id     String @id @default(cuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  // Manually logged follow-up notes are the only thing that populates a
+  // lead's timeline in this pass (no auto-logging of every field edit),
+  // except moving a lead to LOST also drops one of these carrying the
+  // lost reason — see LeadsService.update.
+  note String
+
+  // The follow-up date/time set at the moment this note was logged —
+  // kept on the activity itself (not just on the Lead) so the timeline
+  // shows what was scheduled at each point in history, not only the
+  // lead's current value. When present, LeadsService.addActivity also
+  // copies it onto Lead.nextFollowUpAt so the overdue badge tracks it.
+  nextFollowUpAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@map("lead_activities")
+}
+
+model Employee {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Single-branch only for now (the spec allows multi-branch staff, but
+  // that's deferred until there's an actual need for it).
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  name  String
+  email String?
+  phone String
+  photoUrl String?
+
+  role   EmployeeRole @default(OTHER)
+  status EmploymentStatus @default(ACTIVE)
+
+  joinDate    DateTime
+  // Feeds the (currently inert) BIRTHDAY_EMPLOYEE notification type once
+  // its cron check is wired up.
+  dateOfBirth DateTime?
+
+  // Optional — plain numeric monthly pay, no currency conversion logic
+  // here (branch already carries its own currency for display).
+  basicPay Decimal? @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activities EmployeeActivity[]
+
+  // Set once a login is created for this employee (via the "Create
+  // login" checkbox on creation, or the retroactive action for older
+  // records) — null means this employee has no login yet.
+  user User?
+
+  // Leads assigned to this employee via Lead.assignedToEmployeeId.
+  assignedLeads Lead[]
+
+  @@index([organizationId, branchId])
+  @@map("employees")
+}
+
+model EmployeeActivity {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  note String
+
+  createdAt DateTime @default(now())
+
+  @@index([employeeId, createdAt])
+  @@map("employee_activities")
+}
+
+model User {
+  id             String    @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  role     UserRole @default(OWNER)
+  name     String
+  email    String   @unique
+  phone    String   @unique
+  password String // bcrypt hash — used for the actual login check
+
+  // Reversibly encrypted (AES-256-GCM, see credentials-crypto.util.ts)
+  // copy of the plaintext password — set only for auto-generated staff
+  // logins, so the owner can look it up again from the employee's
+  // detail screen. Null for the owner's own account (set via the
+  // register flow, never auto-generated) and for any login created
+  // before this field existed.
+  passwordEnc String?
+
+  // Set for staff logins (Trainer/Manager/Front Desk) — null for the
+  // owner's own account. Scopes a staff member's data access to just
+  // this branch (see BranchScopeGuard); the owner sees chain-wide.
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  // Links a staff login back to the Employee record it was created
+  // from — null for the owner (who has no Employee record). Unique
+  // since a login is 1:1 with the employee it belongs to.
+  employeeId String?  @unique
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  emailVerifiedAt DateTime?
+  phoneVerifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  otpCodes OtpCode[]
+
+  // Leads this user personally created — see Lead.createdByUserId.
+  createdLeads Lead[]
+
+  @@map("users")
+}
+
+// One row per (organization, role, screen) — the editable permission
+// matrix. Seeded true/true for Trainer/Manager/Front Desk across every
+// Screen value when an organization is created (or lazily, on first
+// staff login creation) so nothing needs to change when a new screen
+// ships. The owner role bypasses this table entirely (always full
+// access) rather than needing rows of its own.
+model RolePermission {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  role   UserRole
+  screen Screen
+
+  canRead  Boolean @default(true)
+  canWrite Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, role, screen])
+  @@map("role_permissions")
+}
+
+model OtpCode {
+  id      String     @id @default(cuid())
+  userId  String
+  user    User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  purpose OtpPurpose
+  channel OtpChannel
+  code    String // 6-digit code, hashed would be stronger — see AuthService note
+
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, purpose])
+  @@map("otp_codes")
+}
+
+// ---- Notifications ----
+// Generic, extensible notification system — new types are just a new
+// enum value + a trigger call site elsewhere, not new plumbing here.
+// Config is org-level only for now (no per-branch override yet).
+
+enum NotificationType {
+  LEAD_OVERDUE
+  LEAD_ASSIGNED
+  // Not wired to anything yet — Employees/Members modules don't exist,
+  // so these have nothing to check. The config rows exist so the
+  // Configuration screen is ready ahead of time.
+  BIRTHDAY_EMPLOYEE
+  BIRTHDAY_MEMBER
+  MEMBERSHIP_EXPIRY
+}
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  URGENT
+}
+
+model Notification {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  type     NotificationType
+  severity NotificationSeverity @default(INFO)
+
+  title   String
+  message String
+
+  // What this notification is about, e.g. entityType "lead" + entityId
+  // = a lead's id — lets the frontend jump straight to it.
+  entityType String?
+  entityId   String?
+
+  // A stable, content-derived key used to stop the same event firing
+  // twice (e.g. "lead-followup:<leadId>:<dueTime>:<offset>") — the
+  // cron/trigger checks for an existing notification with this key
+  // before creating another one. NOT what the bell dropdown groups by;
+  // that grouping (Leads / Birthdays / Renewals) is done client-side
+  // off the `type` field instead.
+  groupKey String?
+
+  read Boolean @default(false)
+
+  // Manual dismiss — hides it from the active list without deleting.
+  // Only meaningful once read (service enforces read-before-delete
+  // rather than read-before-close, but both are "done with this").
+  closedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, groupKey])
+  @@map("notifications")
+}
+
+// One row per organization — the master on/off switch. When disabled,
+// the bell icon doesn't render at all on the frontend (not just empty).
+model NotificationSetup {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  enabled Boolean @default(true)
+
+  // Notifications older than this many days are permanently deleted by
+  // a scheduled cleanup job. Null = never auto-clean.
+  autoCleanDays Int?
+
+  soundEnabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("notification_setups")
+}
+
+// One row per (organization, type) — per-type rules, independent of
+// the org-wide on/off switch above.
+model NotificationConfig {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  type    NotificationType
+  enabled Boolean              @default(true)
+  severity NotificationSeverity @default(INFO)
+
+  inAppEnabled    Boolean @default(true)
+  // Stored now, not wired to anything yet — surfaced in the UI as
+  // disabled "coming soon" toggles until an email/WhatsApp channel
+  // actually exists.
+  emailEnabled    Boolean @default(false)
+  whatsappEnabled Boolean @default(false)
+
+  // Flexible per-type rule, e.g. offsets before a target time:
+  // { "offsets": [{ "value": 60, "unit": "MINUTES" }, { "value": 0, "unit": "MINUTES" }] }
+  // Shape varies by type (minutes/hours for time-of-day events like a
+  // lead follow-up, days for date-only events like membership expiry)
+  // — kept as JSON so new types don't need a schema change.
+  rule Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, type])
+  @@map("notification_configs")
+}
