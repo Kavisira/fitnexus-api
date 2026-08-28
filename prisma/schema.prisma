@@ -33,6 +33,18 @@ enum Screen {
   NOTIFICATIONS
   BRANCHES
   MEMBERS
+  PLANS
+  EXPENSES
+}
+
+enum ExpenseCategory {
+  RENT
+  SALARY
+  UTILITIES
+  EQUIPMENT
+  MAINTENANCE
+  MARKETING
+  OTHER
 }
 
 enum OtpPurpose {
@@ -53,6 +65,43 @@ enum OrganizationStatus {
 enum BranchStatus {
   ACTIVE
   INACTIVE
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// Purely to pick which body-shape preset the progress avatar renders
+// with (see MemberMetricEntry) — OTHER falls back to a neutral preset.
+// Not used anywhere else.
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum PlanDuration {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  CLASS_PACK
+  DROP_IN
+}
+
+// Offer types configurable per plan. Definitions only for now (same as
+// MembershipPlan) — applying one to an actual member signup happens once
+// the Members module exists.
+//   PERCENT_DISCOUNT - percentValue % off the plan price
+//   FLAT_DISCOUNT    - flatAmount off the plan price, in the branch's currency
+//   EXTRA_DURATION   - extraMonths added free on top of the plan's duration
+//   COUPLE           - percentValue % off a second member's plan price
+//                      when both are added together (100 = second member free)
+enum OfferType {
+  PERCENT_DISCOUNT
+  FLAT_DISCOUNT
+  EXTRA_DURATION
+  COUPLE
 }
 
 enum LeadStatus {
@@ -102,6 +151,10 @@ model Organization {
   branches  Branch[]
   leads     Lead[]
   employees Employee[]
+  plans     MembershipPlan[]
+  offers    Offer[]
+  members   Member[]
+  expenses  Expense[]
 
   notifications        Notification[]
   notificationSetup    NotificationSetup?
@@ -158,6 +211,9 @@ model Branch {
   leads     Lead[]
   employees Employee[]
   staff     User[]
+  plans     MembershipPlan[]
+  members   Member[]
+  expenses  Expense[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -170,6 +226,203 @@ model Branch {
   // constraint would otherwise reject it outright.
   @@unique([organizationId, location], name: "branches_org_location_unique")
   @@map("branches")
+}
+
+// Branch-wise plan definitions (spec section 4) — each branch defines its
+// own plans with their own price, in the branch's own currency (there's
+// no separate currency field here; display always reads Branch.currency,
+// same as how a branch's tax rate/timezone work). First pass: definitions
+// only — no Stripe billing and no member assignment yet, both of which
+// need the Members module to exist first.
+model MembershipPlan {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  name     String
+  price    Decimal      @db.Decimal(10, 2)
+  duration PlanDuration
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // A branch can't have two plans with the same name — same
+  // case-insensitive pre-check pattern as Branch.location (see
+  // PlansService.assertUniqueName).
+  @@unique([branchId, name], name: "plans_branch_name_unique")
+  @@map("membership_plans")
+
+  members Member[]
+}
+
+// Independent, org-wide discount/promo catalog — like a coupon: not tied
+// to any single plan or branch. Any offer can be applied to any plan for
+// any branch when a member signs up (that step lives in the Members
+// module, not built yet). A FLAT_DISCOUNT's amount has no currency of
+// its own — it's interpreted in whichever branch's/plan's currency it
+// gets applied against at that time.
+model Offer {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name String
+  type OfferType
+
+  // PERCENT_DISCOUNT / COUPLE only.
+  percentValue Decimal? @db.Decimal(5, 2)
+
+  // FLAT_DISCOUNT only — see the currency note above.
+  flatAmount Decimal? @db.Decimal(10, 2)
+
+  // EXTRA_DURATION only.
+  extraMonths Int?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("offers")
+
+  members Member[]
+}
+
+// Member Management (spec section 4) first pass: core record + plan/offer
+// assignment. No photo, no emergency contact, no cross-branch access, no
+// Stripe billing, no freeze/hold yet — same "definitions/core record
+// first" approach used for Plans and Offers.
+//
+// startDate is the only date entered directly; endDate is always
+// computed (never typed) from the plan's duration plus any extra months
+// from an EXTRA_DURATION offer, recalculated whenever startDate/plan/
+// offer changes (see MembersService). price is likewise a snapshot of
+// what was actually charged (plan price adjusted by whichever offer
+// applied) — set once at signup and never recomputed from a later plan
+// price change, so a member's own record stays historically accurate.
+//
+// A COUPLE offer pairs two members: the secondary (discounted) member
+// stores partnerMemberId pointing at the primary (full-price) member it
+// was created alongside.
+model Member {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Home branch — a member belongs to exactly one branch (no
+  // cross-branch access in this first pass).
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  name  String
+  phone String
+  email String?
+
+  // Free-text (Walk-in, Referral, Converted from Lead, ...) — shared
+  // frontend constant, same pattern as Lead.source.
+  source String?
+
+  // Required — every member is on some plan; the plan must belong to
+  // this member's branch (validated in MembersService). SetNull (not
+  // Cascade) so deleting a plan doesn't delete its members' historical
+  // records — planId just goes null and the snapshot fields below still
+  // tell the full story.
+  planId String?
+  plan   MembershipPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  // Optional — from the independent, org-wide Offer catalog. SetNull
+  // for the same reason as planId.
+  offerId String?
+  offer   Offer?  @relation(fields: [offerId], references: [id], onDelete: SetNull)
+
+  // Optional — must belong to this member's branch (validated in
+  // MembersService). SetNull so deleting the employee doesn't delete
+  // the member, it just clears the assignment (same pattern as
+  // Lead.assignedToEmployee).
+  assignedTrainerEmployeeId String?
+  assignedTrainerEmployee   Employee? @relation(fields: [assignedTrainerEmployeeId], references: [id], onDelete: SetNull)
+
+  preferredLanguage String  @default("en")
+  // Free-text (Cash, Card, UPI, ...) — shared frontend constant.
+  paymentMode       String?
+
+  // Marker only — doesn't change price/duration math. Lets trial
+  // members be filtered for follow-up once notifications extend here.
+  isTrial Boolean @default(false)
+
+  startDate DateTime
+  endDate   DateTime
+
+  // Snapshot of what was actually charged — see the doc comment above.
+  price Decimal @db.Decimal(10, 2)
+
+  status MemberStatus @default(ACTIVE)
+
+  // Set only on the secondary member of a COUPLE-offer pairing; points
+  // at the primary (full-price) member it was created alongside.
+  partnerMemberId String? @unique
+  partnerMember   Member? @relation("MemberPartner", fields: [partnerMemberId], references: [id], onDelete: SetNull)
+  partneredBy     Member? @relation("MemberPartner")
+
+  // Health profile — all optional so existing members aren't forced to
+  // fill these in immediately. Age is always computed from dateOfBirth,
+  // never stored. heightCm is kept at the member level (rarely changes
+  // for an adult) rather than snapshotted per metric entry; a metric
+  // entry's bmi is computed from whatever heightCm is current *at the
+  // time that entry is recorded* and then frozen on the entry itself, so
+  // editing height later doesn't rewrite history (see MembersService).
+  dateOfBirth  DateTime?
+  gender       Gender?
+  bloodGroup   String?
+  heightCm     Decimal?  @db.Decimal(5, 2)
+  goalWeightKg Decimal?  @db.Decimal(5, 2)
+
+  metricEntries MemberMetricEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, branchId])
+  @@map("members")
+}
+
+// One row per monthly (or whenever-recorded) check-in — weight and tape
+// measurements, plus a BMI computed from that weight against the
+// member's heightCm *at the time this entry was created* and frozen
+// here (bmi/bmiStatus), so a later height correction never rewrites
+// past history. bmiStatus is the standard WHO band name
+// (UNDERWEIGHT/NORMAL/OVERWEIGHT/OBESE), stored as plain text rather
+// than a DB enum since it's derived/display data, not a business state
+// machine like MemberStatus. Feeds both the history list/chart and the
+// progress-avatar preset on the Members screen.
+model MemberMetricEntry {
+  id       String @id @default(cuid())
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  recordedAt DateTime @default(now())
+
+  weightKg Decimal  @db.Decimal(5, 2)
+  chestCm  Decimal? @db.Decimal(5, 2)
+  waistCm  Decimal? @db.Decimal(5, 2)
+  hipsCm   Decimal? @db.Decimal(5, 2)
+
+  bmi       Decimal @db.Decimal(4, 1)
+  bmiStatus String
+
+  // A progress photo for this check-in, stored as a base64 data URL
+  // (client-side compressed before upload — see members.ts) rather than
+  // a file-storage URL, since there's no object storage wired up yet.
+  // Optional — a member can log numbers without a photo.
+  photoUrl String?
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId, recordedAt])
+  @@map("member_metric_entries")
 }
 
 model Lead {
@@ -294,6 +547,9 @@ model Employee {
 
   // Leads assigned to this employee via Lead.assignedToEmployeeId.
   assignedLeads Lead[]
+
+  // Members this employee is the assigned trainer for.
+  assignedMembers Member[]
 
   @@index([organizationId, branchId])
   @@map("employees")
@@ -509,4 +765,29 @@ model NotificationConfig {
 
   @@unique([organizationId, type])
   @@map("notification_configs")
+}
+
+model Expense {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  category ExpenseCategory
+  amount   Decimal @db.Decimal(10, 2)
+
+  // When the expense was actually incurred (not when it was logged in
+  // the system — those can differ, e.g. entering last week's electricity
+  // bill today). Defaults to now() if the caller doesn't pass one.
+  expenseDate DateTime @default(now())
+
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, branchId, expenseDate])
+  @@map("expenses")
 }

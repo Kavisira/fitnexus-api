@@ -1,11 +1,18 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { json } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
+
+  // Default Express JSON body limit (100kb) is too small for a monthly
+  // progress photo sent as a base64 data URL in the check-in payload
+  // (see MembersService.addMetricEntry) — bumped just enough for a
+  // client-side-compressed photo, not raw uploads.
+  app.use(json({ limit: '4mb' }));
 
   app.useGlobalPipes(
     new ValidationPipe({

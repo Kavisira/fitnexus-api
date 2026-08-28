@@ -4,14 +4,18 @@ import { Screen, UserRole } from '@prisma/client';
 // Members are placeholders on the frontend today, but their rows exist
 // now so nothing needs to change when those modules ship (same pattern
 // as the notification config screen).
+// DASHBOARD is deliberately excluded — it's always-on for every role
+// (see RolesService.can/getForRole) and has no write action, so there's
+// nothing for the matrix to configure.
 export const ALL_SCREENS: Screen[] = [
-  Screen.DASHBOARD,
   Screen.EMPLOYEES,
   Screen.ATTENDANCE,
   Screen.LEADS,
   Screen.NOTIFICATIONS,
   Screen.BRANCHES,
   Screen.MEMBERS,
+  Screen.PLANS,
+  Screen.EXPENSES,
 ];
 
 // Roles whose access is governed by the RolePermission matrix. OWNER is

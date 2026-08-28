@@ -47,6 +47,10 @@ export class RolesService {
    * gets every screen true/true without a DB lookup, matching `can()`. */
   async getForRole(organizationId: string, role: UserRole): Promise<Record<Screen, { canRead: boolean; canWrite: boolean }>> {
     const result = {} as Record<Screen, { canRead: boolean; canWrite: boolean }>;
+    // Dashboard always resolves true here too (see can() above) — set
+    // first so it's present in the map even for staff roles, whose loop
+    // below only walks ALL_SCREENS (which no longer includes it).
+    result[Screen.DASHBOARD] = { canRead: true, canWrite: true };
 
     if (role === UserRole.OWNER) {
       for (const screen of ALL_SCREENS) {
@@ -83,6 +87,13 @@ export class RolesService {
    * fail-closed rather than fail-open. */
   async can(organizationId: string, role: UserRole, screen: Screen, action: 'read' | 'write'): Promise<boolean> {
     if (role === UserRole.OWNER) {
+      return true;
+    }
+    // Dashboard is deliberately not part of the configurable matrix —
+    // every logged-in role always has read access to it (its content
+    // just varies by role, see DashboardService). There's no write
+    // action on Dashboard at all.
+    if (screen === Screen.DASHBOARD) {
       return true;
     }
     const row = await this.prisma.rolePermission.findUnique({

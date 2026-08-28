@@ -8,6 +8,11 @@ import { LeadsModule } from './leads/leads.module';
 import { EmployeesModule } from './employees/employees.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { RolesModule } from './roles/roles.module';
+import { PlansModule } from './plans/plans.module';
+import { OffersModule } from './offers/offers.module';
+import { MembersModule } from './members/members.module';
+import { ExpensesModule } from './expenses/expenses.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -22,9 +27,14 @@ import { RolesModule } from './roles/roles.module';
     LeadsModule,
     EmployeesModule,
     NotificationsModule,
-    // Add MembersModule, AttendanceModule here as those pages come
-    // online (see the sidenav in the Angular app — the routes already
-    // exist as placeholders).
+    PlansModule,
+    OffersModule,
+    MembersModule,
+    ExpensesModule,
+    DashboardModule,
+    // Add AttendanceModule here as that page comes online (see the
+    // sidenav in the Angular app — the route already exists as a
+    // placeholder).
   ],
 })
 export class AppModule {}
