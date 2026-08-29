@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { json } from 'express';
+import { json, text } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -13,6 +13,12 @@ async function bootstrap() {
   // (see MembersService.addMetricEntry) — bumped just enough for a
   // client-side-compressed photo, not raw uploads.
   app.use(json({ limit: '4mb' }));
+
+  // ADMS biometric devices POST attendance logs as plain tab-separated
+  // text, not JSON — Express's json() parser silently leaves req.body
+  // undefined for that content type, so /iclock/* gets its own text
+  // body parser ahead of everything else.
+  app.use('/iclock', text({ type: () => true, limit: '2mb' }));
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -27,7 +33,10 @@ async function bootstrap() {
     .map((o) => o.trim());
   app.enableCors({ origin: origins, credentials: true });
 
-  app.setGlobalPrefix('api');
+  // Excluded from the /api prefix: biometric ADMS devices are hardcoded
+  // in firmware to call exactly /iclock/cdata and /iclock/getrequest,
+  // with no way to configure an extra path segment on the device side.
+  app.setGlobalPrefix('api', { exclude: ['iclock/cdata', 'iclock/getrequest'] });
 
   const port = config.get<number>('PORT') ?? 3000;
   await app.listen(port);

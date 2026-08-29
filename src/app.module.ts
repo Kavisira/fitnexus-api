@@ -12,7 +12,10 @@ import { PlansModule } from './plans/plans.module';
 import { OffersModule } from './offers/offers.module';
 import { MembersModule } from './members/members.module';
 import { ExpensesModule } from './expenses/expenses.module';
+import { LeaveModule } from './leave/leave.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { AttendanceModule } from './attendance/attendance.module';
+import { AlertsModule } from './alerts/alerts.module';
 
 @Module({
   imports: [
@@ -31,10 +34,10 @@ import { DashboardModule } from './dashboard/dashboard.module';
     OffersModule,
     MembersModule,
     ExpensesModule,
+    LeaveModule,
+    AttendanceModule,
+    AlertsModule,
     DashboardModule,
-    // Add AttendanceModule here as that page comes online (see the
-    // sidenav in the Angular app — the route already exists as a
-    // placeholder).
   ],
 })
 export class AppModule {}

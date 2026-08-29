@@ -8,8 +8,17 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // DATABASE_URL: the transaction pooler — what the running app uses
+  // at request time (pgbouncer=true, so Prisma disables prepared
+  // statements — required for correctness under transaction pooling).
+  url       = env("DATABASE_URL")
+  // DIRECT_URL: the session pooler (or a true direct connection) — only
+  // `prisma migrate`/`db push` use this. Transaction-mode pooling
+  // doesn't support the session-level advisory locks migrations need,
+  // which is why running migrate against DATABASE_URL alone just hangs
+  // instead of failing outright.
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserRole {
@@ -35,6 +44,26 @@ enum Screen {
   MEMBERS
   PLANS
   EXPENSES
+  // Governs the approval/management side of leave — reviewing and
+  // deciding a team's leave requests, and configuring monthly
+  // allocation. Applying for one's own leave and viewing one's own
+  // balance is a self-service action available to every employee
+  // regardless of this permission (see LeaveController) — same
+  // pattern as DASHBOARD being universally readable.
+  LEAVES
+}
+
+enum LeaveType {
+  CASUAL
+  SICK
+  EARNED
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
 }
 
 enum ExpenseCategory {
@@ -155,6 +184,14 @@ model Organization {
   offers    Offer[]
   members   Member[]
   expenses  Expense[]
+  leaveAllocationConfigs LeaveAllocationConfig[]
+  leaveBalances          LeaveBalance[]
+  leaveRequests          LeaveRequest[]
+  biometricDevices      BiometricDevice[]
+  attendancePunches     AttendancePunch[]
+  attendanceDayRecords  AttendanceDayRecord[]
+  holidays              Holiday[]
+  alerts                Alert[]
 
   notifications        Notification[]
   notificationSetup    NotificationSetup?
@@ -214,6 +251,10 @@ model Branch {
   plans     MembershipPlan[]
   members   Member[]
   expenses  Expense[]
+  leaveRequests          LeaveRequest[]
+  alertsTargeted         Alert[]           @relation("AlertAudienceBranch")
+  biometricDevices       BiometricDevice[]
+  attendancePunches      AttendancePunch[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -381,6 +422,8 @@ model Member {
   goalWeightKg Decimal?  @db.Decimal(5, 2)
 
   metricEntries MemberMetricEntry[]
+  biometricEnrollments BiometricEnrollment[]
+  attendancePunches    AttendancePunch[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -551,6 +594,12 @@ model Employee {
   // Members this employee is the assigned trainer for.
   assignedMembers Member[]
 
+  leaveBalances LeaveBalance[]
+  leaveRequests LeaveRequest[]
+  biometricEnrollments BiometricEnrollment[]
+  attendancePunches    AttendancePunch[]
+  attendanceDayRecords AttendanceDayRecord[]
+
   @@index([organizationId, branchId])
   @@map("employees")
 }
@@ -606,6 +655,10 @@ model User {
   updatedAt DateTime @updatedAt
 
   otpCodes OtpCode[]
+
+  approvedLeaveRequests LeaveRequest[] @relation("LeaveApprover")
+  alertDismissals       AlertDismissal[]
+  alertsTargetedToMe    Alert[]          @relation("AlertAudienceUser")
 
   // Leads this user personally created — see Lead.createdByUserId.
   createdLeads Lead[]
@@ -790,4 +843,342 @@ model Expense {
 
   @@index([organizationId, branchId, expenseDate])
   @@map("expenses")
+}
+
+// ---------------------------------------------------------------------
+// Leave management — self-service leave balance + apply/approve flow.
+// LeaveAllocationConfig is the Owner-configured "how many days per
+// month does each role get, per leave type" table; a scheduled job
+// (LeaveAllocationCronService) credits every active employee's
+// LeaveBalance from it on the 1st of each month, capped by
+// carryForwardCap so unused balance doesn't grow unbounded.
+// ---------------------------------------------------------------------
+
+model LeaveAllocationConfig {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Which non-owner role this row applies to (Branch Manager, Trainer,
+  // Front Desk) — the Owner does not apply for leave through this
+  // system, so OWNER/STAFF/MEMBER rows are never created here.
+  role      UserRole
+  leaveType LeaveType
+
+  // Days credited on the 1st of every month for an active employee of
+  // this role. Supports half-day increments (e.g. 1.5).
+  monthlyAllocation Decimal @db.Decimal(4, 1)
+
+  // Maximum balance an employee of this role/type can carry — the
+  // monthly credit still runs, but the resulting balance is capped
+  // here rather than growing indefinitely. Set equal to
+  // monthlyAllocation for "no carry-forward" behavior.
+  carryForwardCap Decimal @db.Decimal(4, 1)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, role, leaveType])
+  @@map("leave_allocation_configs")
+}
+
+model LeaveBalance {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  leaveType LeaveType
+  balance   Decimal   @default(0) @db.Decimal(4, 1)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, leaveType])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  leaveType LeaveType
+  startDate DateTime
+  endDate   DateTime
+  // Inclusive day count between startDate/endDate — computed and
+  // stored at apply time rather than recalculated on every read.
+  days      Decimal     @db.Decimal(4, 1)
+  reason    String?
+  status    LeaveStatus @default(PENDING)
+
+  // The Branch Manager (or Owner, if the applicant is a Branch
+  // Manager) who approved/rejected this request. Null while PENDING.
+  approverUserId String?
+  approverUser   User?   @relation("LeaveApprover", fields: [approverUserId], references: [id], onDelete: SetNull)
+  decisionNote   String?
+  decidedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, branchId, status])
+  @@index([employeeId, createdAt])
+  @@map("leave_requests")
+}
+
+// ---------------------------------------------------------------------
+// Attendance — biometric device integration + derived daily records.
+//
+// Devices are heterogeneous across clients, so this is deliberately a
+// thin, vendor-agnostic pipeline rather than one hard-coded protocol:
+//
+//   BiometricDevice  — one row per physical unit at a branch, tagged
+//                       with how it talks to us (see BiometricVendorType).
+//   BiometricEnrollment — maps a raw biometric user id (the PIN/UID a
+//                       device reports) to an Employee or a Member.
+//                       Enrollment itself (associating a fingerprint
+//                       with a person) happens on the device/its own
+//                       software — we only need to know which numeric
+//                       id corresponds to which person here.
+//   AttendancePunch  — one row per raw scan event, from any device
+//                       type, before any interpretation.
+//   AttendanceDayRecord — one row per employee per day, derived from
+//                       that day's punches (+ approved leave + holidays)
+//                       by AttendanceAggregationCronService. This is
+//                       what the monthly summary and Dashboard read —
+//                       never the raw punches directly.
+//   Holiday          — org-wide dates excluded from absence tracking.
+// ---------------------------------------------------------------------
+
+enum BiometricVendorType {
+  // Device pushes punches to us on its own over the internet, using the
+  // ADMS/iClock protocol that ZKTeco and most same-firmware OEM clones
+  // support natively (configured with our server URL on the device) —
+  // the only path that's genuinely real-time with zero extra software.
+  ADMS_PUSH
+  // Any device/local bridge software that can make an HTTP POST with a
+  // JSON body — a generic fallback for hardware without ADMS support.
+  GENERIC_WEBHOOK
+  // No push capability at all — punches are exported from the device's
+  // own software and uploaded here as a CSV on a schedule the client
+  // controls.
+  CSV_IMPORT
+}
+
+enum PunchPersonType {
+  EMPLOYEE
+  MEMBER
+}
+
+enum PunchDirection {
+  IN
+  OUT
+  UNKNOWN
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  ON_LEAVE
+  HOLIDAY
+}
+
+model BiometricDevice {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  name       String
+  vendorType BiometricVendorType
+
+  // The device's own serial number — how an ADMS push identifies which
+  // device it's from (the ?SN= query param on every request). Required
+  // and unique per org for ADMS_PUSH devices; optional/unused for the
+  // other vendor types.
+  serialNumber String?
+
+  // Bearer token a GENERIC_WEBHOOK caller (or CSV import) must present
+  // — generated on device creation, rotatable. Not used by ADMS_PUSH
+  // devices, which authenticate by serial number instead (the real
+  // protocol has no better option — see AttendanceIngestController).
+  apiKey String @unique @default(cuid())
+
+  lastSeenAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollments BiometricEnrollment[]
+  punches     AttendancePunch[]
+
+  @@unique([organizationId, serialNumber])
+  @@map("biometric_devices")
+}
+
+model BiometricEnrollment {
+  id             String @id @default(cuid())
+  organizationId String
+
+  deviceId String
+  device   BiometricDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  // The raw id the device reports for this person (its "PIN"/UID) —
+  // meaningful only in combination with deviceId, since two different
+  // devices can reuse the same small integer for different people.
+  biometricUserId String
+
+  personType PunchPersonType
+  employeeId String?
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  memberId   String?
+  member     Member?   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([deviceId, biometricUserId])
+  @@map("biometric_enrollments")
+}
+
+model AttendancePunch {
+  id             String @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  deviceId String
+  device   BiometricDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  biometricUserId String
+  personType      PunchPersonType
+
+  // Resolved from BiometricEnrollment at ingestion time — null if the
+  // device reported a biometricUserId with no enrollment on file yet
+  // (surfaced as an "unmatched punch" for the Owner to enroll).
+  employeeId String?
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  memberId   String?
+  member     Member?   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  punchTime DateTime
+  direction PunchDirection @default(UNKNOWN)
+
+  // The raw line/payload as received, kept for debugging a device
+  // that's sending unexpected data — never parsed back out.
+  raw String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, branchId, punchTime])
+  @@index([employeeId, punchTime])
+  @@index([memberId, punchTime])
+  @@map("attendance_punches")
+}
+
+model AttendanceDayRecord {
+  id             String @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  // Stored at midnight UTC for the calendar day it summarizes.
+  date   DateTime
+  status AttendanceStatus
+
+  firstPunchAt DateTime?
+  lastPunchAt  DateTime?
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([organizationId, date])
+  @@map("attendance_day_records")
+}
+
+model Holiday {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  date DateTime
+  name String
+
+  createdAt DateTime @default(now())
+
+  @@unique([organizationId, date])
+  @@map("holidays")
+}
+
+
+// ---- Login alerts ----
+// Owner-configured notices shown right after login. A valid window
+// (startDate mandatory, endDate optional — an open-ended alert stays
+// active until the Owner manually flips isActive off) plus a per-user
+// "don't show again" opt-out (AlertDismissal) rather than a single
+// global dismissal, since one person snoozing a notice shouldn't hide
+// it from everyone else who hasn't seen it yet.
+enum AlertAudienceType {
+  ALL
+  BRANCH
+  USER
+}
+
+model Alert {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  title   String
+  message String
+
+  startDate DateTime
+  endDate   DateTime?
+  isActive  Boolean   @default(true)
+
+  // Who sees this alert. ALL (default) = everyone in the org. BRANCH =
+  // only logins scoped to audienceBranchId. USER = only the one login
+  // at audienceUserId. Exactly one of the two ID fields is set,
+  // matching audienceType — enforced in the service, not the schema.
+  audienceType     AlertAudienceType @default(ALL)
+  audienceBranchId String?
+  audienceBranch   Branch?           @relation("AlertAudienceBranch", fields: [audienceBranchId], references: [id], onDelete: Cascade)
+  audienceUserId   String?
+  audienceUser     User?             @relation("AlertAudienceUser", fields: [audienceUserId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dismissals AlertDismissal[]
+
+  @@index([organizationId, isActive])
+  @@map("alerts")
+}
+
+model AlertDismissal {
+  id String @id @default(cuid())
+
+  alertId String
+  alert   Alert  @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  dismissedAt DateTime @default(now())
+
+  @@unique([alertId, userId])
+  @@map("alert_dismissals")
 }
