@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { OtpChannel, OtpPurpose, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { OtpService } from './otp.service';
+import { OTP_DEBUG_EXPOSE, OtpService } from './otp.service';
 import { RegisterDto } from './dto/register.dto';
 import { VerifyRegisterOtpDto } from './dto/verify-register-otp.dto';
 import { ResendRegisterOtpDto } from './dto/resend-register-otp.dto';
@@ -54,12 +54,14 @@ export class AuthService {
       },
     });
 
-    await Promise.all([
+    const [emailOtp, phoneOtp] = await Promise.all([
       this.otp.issue(user.id, OtpPurpose.SIGNUP, OtpChannel.EMAIL, dto.email),
       this.otp.issue(user.id, OtpPurpose.SIGNUP, OtpChannel.PHONE, dto.phone),
     ]);
 
-    return { userId: user.id };
+    // TEMPORARY, TESTING-ONLY — see OTP_DEBUG_EXPOSE in otp.service.ts.
+    // Remove this spread once a real SMS/email provider is integrated.
+    return { userId: user.id, ...(OTP_DEBUG_EXPOSE ? { debugOtp: { email: emailOtp, phone: phoneOtp } } : {}) };
   }
 
   /** Step 2 of registration: verify both the email and phone OTP.
@@ -107,12 +109,17 @@ export class AuthService {
       throw new BadRequestException('This account is already verified — please log in instead.');
     }
 
-    await Promise.all([
+    const [emailOtp, phoneOtp] = await Promise.all([
       this.otp.issue(user.id, OtpPurpose.SIGNUP, OtpChannel.EMAIL, user.email),
       this.otp.issue(user.id, OtpPurpose.SIGNUP, OtpChannel.PHONE, user.phone),
     ]);
 
-    return { message: 'New verification codes have been sent.' };
+    // TEMPORARY, TESTING-ONLY — see OTP_DEBUG_EXPOSE in otp.service.ts.
+    // Remove this spread once a real SMS/email provider is integrated.
+    return {
+      message: 'New verification codes have been sent.',
+      ...(OTP_DEBUG_EXPOSE ? { debugOtp: { email: emailOtp, phone: phoneOtp } } : {}),
+    };
   }
 
   async login(dto: LoginDto) {
@@ -150,11 +157,19 @@ export class AuthService {
     const user = await this.findByIdentifier(dto.identifier);
     // Deliberately don't reveal whether the account exists — respond
     // the same way either way, only send if it does.
+    let code: string | undefined;
     if (user) {
       const channel = EMAIL_PATTERN.test(dto.identifier) ? OtpChannel.EMAIL : OtpChannel.PHONE;
-      await this.otp.issue(user.id, OtpPurpose.PASSWORD_RESET, channel, dto.identifier);
+      code = await this.otp.issue(user.id, OtpPurpose.PASSWORD_RESET, channel, dto.identifier);
     }
-    return { message: 'If that account exists, a verification code has been sent.' };
+    // TEMPORARY, TESTING-ONLY — see OTP_DEBUG_EXPOSE in otp.service.ts.
+    // Remove this spread once a real SMS/email provider is integrated.
+    // Only present when `user` was found, same as the real send — this
+    // still doesn't leak account existence to a caller with the flag off.
+    return {
+      message: 'If that account exists, a verification code has been sent.',
+      ...(OTP_DEBUG_EXPOSE && code ? { debugOtp: code } : {}),
+    };
   }
 
   /** Step 2: check (but don't consume) the reset OTP, so the user can
