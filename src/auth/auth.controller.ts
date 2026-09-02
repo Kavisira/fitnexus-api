@@ -42,6 +42,11 @@ export class AuthController {
     return this.authService.forgotPassword(dto);
   }
 
+  @Post('forgot-password/resend-otp')
+  resendResetOtp(@Body() dto: ForgotPasswordDto) {
+    return this.authService.resendResetOtp(dto);
+  }
+
   @Post('forgot-password/verify-otp')
   verifyResetOtp(@Body() dto: VerifyResetOtpDto) {
     return this.authService.verifyResetOtp(dto);

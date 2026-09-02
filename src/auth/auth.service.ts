@@ -172,6 +172,27 @@ export class AuthService {
     };
   }
 
+  /** Re-sends the password-reset OTP — same silent-either-way behavior
+   * as forgotPassword itself (never reveals whether the account
+   * exists), and the same "latest issued code wins" semantics as
+   * OtpService.verify. Mirrors register/resend-otp for registration. */
+  async resendResetOtp(dto: ForgotPasswordDto) {
+    const user = await this.findByIdentifier(dto.identifier);
+
+    let code: string | undefined;
+    if (user) {
+      const channel = EMAIL_PATTERN.test(dto.identifier) ? OtpChannel.EMAIL : OtpChannel.PHONE;
+      code = await this.otp.issue(user.id, OtpPurpose.PASSWORD_RESET, channel, dto.identifier);
+    }
+
+    // TEMPORARY, TESTING-ONLY — see OTP_DEBUG_EXPOSE in otp.service.ts.
+    // Remove this spread once a real SMS/email provider is integrated.
+    return {
+      message: 'If that account exists, a new verification code has been sent.',
+      ...(OTP_DEBUG_EXPOSE && code ? { debugOtp: code } : {}),
+    };
+  }
+
   /** Step 2: check (but don't consume) the reset OTP, so the user can
    * move on to the "set new password" screen. */
   async verifyResetOtp(dto: VerifyResetOtpDto) {
