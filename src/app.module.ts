@@ -16,6 +16,7 @@ import { LeaveModule } from './leave/leave.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { AlertsModule } from './alerts/alerts.module';
+import { VersionModule } from './version/version.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { AlertsModule } from './alerts/alerts.module';
     AttendanceModule,
     AlertsModule,
     DashboardModule,
+    VersionModule,
   ],
 })
 export class AppModule {}
