@@ -362,6 +362,13 @@ model Member {
   phone String
   email String?
 
+  // Profile photo shown across Members/Attendance — a public URL on
+  // S3/Supabase Storage (see S3Service.uploadDataUrl, called from
+  // MembersService.create/update with folder 'member-profiles').
+  // Optional — a member can be added without one and it can be
+  // added/changed/removed later.
+  photoUrl String?
+
   // Free-text (Walk-in, Referral, Converted from Lead, ...) — shared
   // frontend constant, same pattern as Lead.source.
   source String?
