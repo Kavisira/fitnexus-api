@@ -13,6 +13,8 @@ export class UpdateMemberDto {
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsEmail() email?: string;
 
+  @IsOptional() @IsString() photoDataUrl?: string;
+
   @IsOptional() @IsString() source?: string;
 
   @IsOptional() @IsString() planId?: string;

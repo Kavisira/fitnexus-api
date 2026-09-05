@@ -81,9 +81,12 @@ export class S3Service {
   }
 
   /** Decodes a `data:image/...;base64,...` URL and uploads it under
-   * `member-checkins/<memberId>/<uuid>.<ext>`, returning the public URL
-   * to store on the MemberMetricEntry row. */
-  async uploadDataUrl(memberId: string, dataUrl: string): Promise<string> {
+   * `<folder>/<ownerId>/<uuid>.<ext>`, returning the public URL to store
+   * on the record (MemberMetricEntry.photoUrl or Member.photoUrl).
+   * `folder` defaults to the original "member-checkins" prefix used for
+   * progress-check-in photos; profile photos pass 'member-profiles'
+   * instead so the two stay separated in the bucket. */
+  async uploadDataUrl(ownerId: string, dataUrl: string, folder = 'member-checkins'): Promise<string> {
     if (!this.client || !this.bucket) {
       throw new ServiceUnavailableException(
         'Photo storage isn\'t configured yet — set the AWS_S3_*/Supabase Storage environment variables on the server.',
@@ -98,7 +101,7 @@ export class S3Service {
     const extension = mimeType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg';
     const buffer = Buffer.from(base64, 'base64');
 
-    const key = `member-checkins/${memberId}/${randomUUID()}.${extension}`;
+    const key = `${folder}/${ownerId}/${randomUUID()}.${extension}`;
 
     await this.client.send(
       new PutObjectCommand({

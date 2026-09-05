@@ -4,6 +4,7 @@ import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { CreateMetricEntryDto } from './dto/create-metric-entry.dto';
 import { S3Service } from '../uploads/s3.service';
+import { randomUUID } from 'crypto';
 
 const BRANCH_SELECT = { id: true, location: true, currency: true, taxRatePercent: true };
 const PLAN_SELECT = { id: true, name: true, price: true, duration: true };
@@ -158,6 +159,11 @@ export class MembersService {
     const basePrice = Number(plan.price);
     const price = this.priceForPrimary(basePrice, offer);
 
+    // No memberId exists yet at this point — a random id is used just
+    // for the S3 key's folder segment (see S3Service.uploadDataUrl),
+    // it doesn't need to match the eventual Member.id.
+    const photoUrl = dto.photoDataUrl ? await this.s3.uploadDataUrl(randomUUID(), dto.photoDataUrl, 'member-profiles') : undefined;
+
     const primary = await this.prisma.member.create({
       data: {
         organizationId,
@@ -165,6 +171,7 @@ export class MembersService {
         name: dto.name,
         phone: dto.phone,
         email: dto.email,
+        photoUrl,
         source: dto.source,
         planId: dto.planId,
         offerId: dto.offerId,
@@ -271,6 +278,12 @@ export class MembersService {
   async update(organizationId: string, id: string, dto: UpdateMemberDto) {
     const member = await this.findExistingMember(organizationId, id);
 
+    const photoUrl = dto.photoDataUrl
+      ? dto.photoDataUrl === ''
+        ? null
+        : await this.s3.uploadDataUrl(id, dto.photoDataUrl, 'member-profiles')
+      : undefined;
+
     const targetBranchId = dto.branchId ?? member.branchId;
     if (dto.branchId && dto.branchId !== member.branchId) {
       await this.assertBranchInOrg(organizationId, dto.branchId);
@@ -320,6 +333,7 @@ export class MembersService {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
         ...(dto.email !== undefined ? { email: dto.email } : {}),
+        ...(dto.photoDataUrl !== undefined ? { photoUrl } : {}),
         ...(dto.source !== undefined ? { source: dto.source } : {}),
         ...(dto.planId !== undefined ? { planId: dto.planId } : {}),
         ...(dto.offerId !== undefined ? { offerId: dto.offerId } : {}),

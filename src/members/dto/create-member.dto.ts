@@ -32,6 +32,12 @@ export class CreateMemberDto {
   @IsString() phone!: string;
   @IsOptional() @IsEmail() email?: string;
 
+  // Already compressed to a small JPEG data URL client-side (see
+  // members.ts) before it reaches here — MembersService uploads it to
+  // S3/Supabase Storage (see S3Service.uploadDataUrl) and stores only
+  // the resulting public URL on Member.photoUrl.
+  @IsOptional() @IsString() photoDataUrl?: string;
+
   @IsOptional() @IsString() source?: string;
 
   @IsString() planId!: string;
