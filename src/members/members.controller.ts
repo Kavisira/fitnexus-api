@@ -31,9 +31,17 @@ export class MembersController {
     @Query('branchId') branchId?: string,
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
     const effectiveBranchId = user.branchId ?? branchId;
-    return this.membersService.findAll(user.organizationId, { branchId: effectiveBranchId, status, search });
+    return this.membersService.findAll(user.organizationId, {
+      branchId: effectiveBranchId,
+      status,
+      search,
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+    });
   }
 
   @Get(':id')

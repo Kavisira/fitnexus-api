@@ -531,6 +531,13 @@ model Lead {
 
   activities LeadActivity[]
 
+  // Every list/detail lookup filters by organizationId (+ branchId when
+  // narrowed to one branch) — see LeadsService.findAll. The cron in
+  // NotificationsCronService additionally scans org-wide by
+  // nextFollowUpAt + status every 5 minutes, which was previously an
+  // unindexed full scan.
+  @@index([organizationId, branchId])
+  @@index([nextFollowUpAt, status])
   @@map("leads")
 }
 
@@ -670,6 +677,11 @@ model User {
   // Leads this user personally created — see Lead.createdByUserId.
   createdLeads Lead[]
 
+  // organizationId/branchId are read on essentially every authenticated
+  // request (BranchScopeGuard, PermissionsService, etc.) — see the perf
+  // audit notes.
+  @@index([organizationId])
+  @@index([branchId])
   @@map("users")
 }
 

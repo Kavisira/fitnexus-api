@@ -63,6 +63,9 @@ export interface MemberFilters {
   branchId?: string | null;
   status?: string;
   search?: string;
+  // 1-based page number and page size — see findAll's doc comment.
+  page?: number;
+  pageSize?: number;
 }
 
 @Injectable()
@@ -236,25 +239,43 @@ export class MembersService {
     return this.findOne(organizationId, primary.id);
   }
 
-  findAll(organizationId: string, filters: MemberFilters) {
-    return this.prisma.member.findMany({
-      where: {
-        organizationId,
-        ...(filters.branchId ? { branchId: filters.branchId } : {}),
-        ...(filters.status ? { status: filters.status as 'ACTIVE' | 'INACTIVE' } : {}),
-        ...(filters.search
-          ? {
-              OR: [
-                { name: { contains: filters.search, mode: 'insensitive' as const } },
-                { phone: { contains: filters.search, mode: 'insensitive' as const } },
-                { email: { contains: filters.search, mode: 'insensitive' as const } },
-              ],
-            }
-          : {}),
-      },
-      include: MEMBER_INCLUDE,
-      orderBy: [{ branchId: 'asc' }, { createdAt: 'desc' }],
-    });
+  /** Paginated — this used to return every member in the org in one
+   * unbounded findMany, which was fine at dozens of members and a real
+   * problem once a chain has thousands across branches (see the perf
+   * audit). page/pageSize default to a first page of 25; the frontend
+   * always sends both explicitly, but defaults are kept here too so
+   * this stays safe against any other future caller. */
+  async findAll(organizationId: string, filters: MemberFilters) {
+    const page = filters.page && filters.page > 0 ? filters.page : 1;
+    const pageSize = filters.pageSize && filters.pageSize > 0 ? Math.min(filters.pageSize, 500) : 25;
+
+    const where = {
+      organizationId,
+      ...(filters.branchId ? { branchId: filters.branchId } : {}),
+      ...(filters.status ? { status: filters.status as 'ACTIVE' | 'INACTIVE' } : {}),
+      ...(filters.search
+        ? {
+            OR: [
+              { name: { contains: filters.search, mode: 'insensitive' as const } },
+              { phone: { contains: filters.search, mode: 'insensitive' as const } },
+              { email: { contains: filters.search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.member.findMany({
+        where,
+        include: MEMBER_INCLUDE,
+        orderBy: [{ branchId: 'asc' }, { createdAt: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.member.count({ where }),
+    ]);
+
+    return { data, total, page, pageSize };
   }
 
   async findOne(organizationId: string, id: string) {
