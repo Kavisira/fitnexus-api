@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import * as PDFDocument from 'pdfkit';
+import PDFDocument = require('pdfkit');
 import { Payslip, Employee, Branch, Organization } from '@prisma/client';
 
 const MONTH_NAMES = [
