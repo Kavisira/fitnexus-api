@@ -7,21 +7,38 @@ import { RolesService } from '../roles/roles.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { CreateEmployeeActivityDto } from './dto/create-employee-activity.dto';
+import { SalaryComponentDto } from './dto/salary-component.dto';
 import { buildBaseUsername, passwordFromPhone, withSuffix } from './employee-login.util';
 import { decryptSecret, encryptSecret } from './credentials-crypto.util';
+import { parseCsv, rowsToObjects } from '../common/csv.util';
+
+const IMPORT_ROW_CAP = 1000;
+const STATUSES = ['ACTIVE', 'INACTIVE'];
+// Every org starts with these four job titles seeded (see
+// ensureJobTitlesSeeded) — an org can add more of its own from there.
+const DEFAULT_JOB_TITLES = ['Manager', 'Trainer', 'Front Desk', 'Other'];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const BRANCH_SELECT = { id: true, location: true };
 const SALT_ROUNDS = 10;
 
-// Only these Employee roles are entitled to a staff login for now — a
-// plain "Other" record is data-only, matching the roles/permissions
-// scoping discussion (Trainer/Manager/Front Desk are the three roles
-// the permission matrix actually governs).
-const LOGIN_ELIGIBLE_ROLE: Record<string, UserRole> = {
+// Every employee is login-eligible now, whatever their job title —
+// the three names below (matched case-insensitively) map to the
+// permission role the Role Permissions matrix actually governs;
+// anything else (a custom title, or "Other") falls back to the
+// generic STAFF role, which still gets a real login but no entry in
+// that matrix (so it starts with the least access, same idea as an
+// unconfigured role).
+const NAMED_LOGIN_ROLE: Record<string, UserRole> = {
   MANAGER: UserRole.BRANCH_MANAGER,
   TRAINER: UserRole.TRAINER,
-  FRONT_DESK: UserRole.FRONT_DESK,
+  'FRONT DESK': UserRole.FRONT_DESK,
 };
+
+function resolveUserRole(jobTitle: string): UserRole {
+  return NAMED_LOGIN_ROLE[jobTitle.trim().toUpperCase()] ?? UserRole.STAFF;
+}
 
 export interface EmployeeListFilters {
   branchId?: string;
@@ -81,14 +98,15 @@ export class EmployeesService {
   async create(organizationId: string, dto: CreateEmployeeDto) {
     await this.assertBranchInOrg(organizationId, dto.branchId);
 
-    if (dto.createLogin) {
-      if (!dto.dateOfBirth) {
-        throw new BadRequestException('Date of birth is required to create a login.');
-      }
-      if (!LOGIN_ELIGIBLE_ROLE[dto.role ?? 'OTHER']) {
-        throw new BadRequestException('Only Manager, Trainer, or Front Desk roles can have a login.');
-      }
+    if (dto.createLogin && !dto.dateOfBirth) {
+      throw new BadRequestException('Date of birth is required to create a login.');
     }
+
+    // Any job title typed here — including a brand-new one — joins the
+    // org's managed list for next time (see ensureJobTitle); CSV import
+    // goes through this same path via bulkCreate() -> create().
+    const role = dto.role ?? 'OTHER';
+    await this.ensureJobTitle(organizationId, role);
 
     const employee = await this.prisma.employee.create({
       data: {
@@ -98,12 +116,19 @@ export class EmployeesService {
         phone: dto.phone,
         email: dto.email,
         photoUrl: dto.photoUrl,
-        role: dto.role ?? 'OTHER',
+        role,
         joinDate: new Date(dto.joinDate),
         dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
         basicPay: dto.basicPay,
+        // New employees start with an empty salary structure (no
+        // role/branch template — see the SalaryComponent model comment)
+        // unless the caller already sent a list (e.g. CSV import never
+        // does, but a future "copy" convenience could).
+        salaryComponents: dto.components
+          ? { createMany: { data: dto.components.map((c) => this.toSalaryComponentData(c)) } }
+          : undefined,
       },
-      include: { branch: { select: BRANCH_SELECT } },
+      include: { branch: { select: BRANCH_SELECT }, salaryComponents: true },
     });
 
     if (!dto.createLogin) {
@@ -112,6 +137,52 @@ export class EmployeesService {
 
     const login = await this.createLoginForEmployee(organizationId, employee.id);
     return { employee, login };
+  }
+
+  /** Job titles: a per-org managed list (see the JobTitle model doc
+   * comment) backing the Employees form's role dropdown. */
+
+  async ensureJobTitlesSeeded(organizationId: string): Promise<void> {
+    const count = await this.prisma.jobTitle.count({ where: { organizationId } });
+    if (count > 0) return;
+    await this.prisma.jobTitle.createMany({
+      data: DEFAULT_JOB_TITLES.map((name) => ({ organizationId, name })),
+      skipDuplicates: true,
+    });
+  }
+
+  async listJobTitles(organizationId: string) {
+    await this.ensureJobTitlesSeeded(organizationId);
+    return this.prisma.jobTitle.findMany({ where: { organizationId }, orderBy: { name: 'asc' } });
+  }
+
+  /** Converts a validated SalaryComponentDto into Prisma create input,
+   * clamping percent to a sane 0-100 range (class-validator's
+   * @IsNumberString only checks it parses as a number, not its range). */
+  private toSalaryComponentData(dto: SalaryComponentDto): Prisma.SalaryComponentCreateManyEmployeeInput {
+    const percent = Number(dto.percent);
+    if (Number.isNaN(percent) || percent < 0 || percent > 100) {
+      throw new BadRequestException(`Salary component "${dto.name}" percent must be between 0 and 100.`);
+    }
+    return { name: dto.name.trim(), type: dto.type, percent };
+  }
+
+  /** Adds `name` to the org's job title list if it isn't there yet —
+   * used both by the explicit "+ create new" action and silently
+   * whenever create()/bulkCreate() sees a title that doesn't exist yet
+   * (e.g. a CSV import), so the list always reflects every title
+   * actually in use. */
+  async ensureJobTitle(organizationId: string, name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new BadRequestException('Job title cannot be empty.');
+    }
+    await this.ensureJobTitlesSeeded(organizationId);
+    return this.prisma.jobTitle.upsert({
+      where: { organizationId_name: { organizationId, name: trimmed } },
+      create: { organizationId, name: trimmed },
+      update: {},
+    });
   }
 
   /** Shared by create() (checkbox) and the standalone "create login for
@@ -133,10 +204,7 @@ export class EmployeesService {
     if (!employee.dateOfBirth) {
       throw new BadRequestException('Date of birth is required to create a login.');
     }
-    const userRole = LOGIN_ELIGIBLE_ROLE[employee.role];
-    if (!userRole) {
-      throw new BadRequestException('Only Manager, Trainer, or Front Desk roles can have a login.');
-    }
+    const userRole = resolveUserRole(employee.role);
 
     const username = await this.generateUniqueUsername(employee.name, employee.dateOfBirth, employee.organization.name);
     const password = passwordFromPhone(employee.phone);
@@ -249,6 +317,7 @@ export class EmployeesService {
         branch: { select: BRANCH_SELECT },
         activities: { orderBy: { createdAt: 'desc' } },
         user: { select: { id: true, email: true } },
+        salaryComponents: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!employee) {
@@ -267,21 +336,37 @@ export class EmployeesService {
       await this.assertBranchInOrg(organizationId, dto.branchId);
     }
 
-    return this.prisma.employee.update({
-      where: { id },
-      data: {
-        name: dto.name,
-        phone: dto.phone,
-        email: dto.email,
-        branchId: dto.branchId,
-        role: dto.role,
-        status: dto.status,
-        joinDate: dto.joinDate ? new Date(dto.joinDate) : undefined,
-        dateOfBirth: dto.dateOfBirth === undefined ? undefined : dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
-        photoUrl: dto.photoUrl,
-        basicPay: dto.basicPay === undefined ? undefined : dto.basicPay,
-      },
-      include: { branch: { select: BRANCH_SELECT } },
+    if (dto.role) {
+      await this.ensureJobTitle(organizationId, dto.role);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // dto.components undefined -> leave the existing list untouched;
+      // an empty array is a deliberate "clear everything" (see the DTO
+      // doc comment) — both are distinct from "field not sent" here.
+      if (dto.components) {
+        await tx.salaryComponent.deleteMany({ where: { employeeId: id } });
+      }
+
+      return tx.employee.update({
+        where: { id },
+        data: {
+          name: dto.name,
+          phone: dto.phone,
+          email: dto.email,
+          branchId: dto.branchId,
+          role: dto.role,
+          status: dto.status,
+          joinDate: dto.joinDate ? new Date(dto.joinDate) : undefined,
+          dateOfBirth: dto.dateOfBirth === undefined ? undefined : dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
+          photoUrl: dto.photoUrl,
+          basicPay: dto.basicPay === undefined ? undefined : dto.basicPay,
+          salaryComponents: dto.components
+            ? { createMany: { data: dto.components.map((c) => this.toSalaryComponentData(c)) } }
+            : undefined,
+        },
+        include: { branch: { select: BRANCH_SELECT }, salaryComponents: true },
+      });
     });
   }
 
@@ -299,5 +384,101 @@ export class EmployeesService {
       throw new NotFoundException('Employee not found.');
     }
     return this.prisma.employeeActivity.create({ data: { employeeId, note: dto.note } });
+  }
+
+  // ---- Bulk import (CSV) — same two-step parse-then-commit shape as
+  // MembersService, minus the "assign in batches" step: Role and
+  // BranchId are plain values a spreadsheet cell can hold directly, so
+  // there's nothing here that needs a post-parse assignment screen.
+  // Photo and createLogin are deliberately excluded from bulk import —
+  // a photo can't come from a CSV cell, and auto-generating a login
+  // (and exposing its password in a results file) for a whole batch at
+  // once is a security smell; both stay one-by-one actions. ----
+
+  async parseImportCsv(organizationId: string, dto: { branchId: string; csvContent: string }) {
+    await this.assertBranchInOrg(organizationId, dto.branchId);
+
+    const parsedRows = rowsToObjects(parseCsv(dto.csvContent));
+    if (parsedRows.length === 0) {
+      throw new BadRequestException('The CSV file has no data rows.');
+    }
+    if (parsedRows.length > IMPORT_ROW_CAP) {
+      throw new BadRequestException(`This file has ${parsedRows.length} rows — the maximum per import is ${IMPORT_ROW_CAP}. Split it into smaller files.`);
+    }
+
+    const phones = parsedRows.map((r) => r['Phone']).filter(Boolean);
+    const emails = parsedRows.map((r) => r['Email']).filter(Boolean);
+    const existing = await this.prisma.employee.findMany({
+      where: {
+        organizationId,
+        branchId: dto.branchId,
+        OR: [...(phones.length ? [{ phone: { in: phones } }] : []), ...(emails.length ? [{ email: { in: emails } }] : [])],
+      },
+      select: { phone: true, email: true },
+    });
+    const existingPhones = new Set(existing.map((e) => e.phone));
+    const existingEmails = new Set(existing.map((e) => e.email).filter((e): e is string => !!e));
+    const seenPhones = new Set<string>();
+    const seenEmails = new Set<string>();
+
+    return {
+      rows: parsedRows.map((raw, i) => {
+        const errors: string[] = [];
+        const name = raw['Name'] ?? '';
+        const phone = raw['Phone'] ?? '';
+        const email = raw['Email'] || undefined;
+        // Free-form now — matched against (or added to) the org's job
+        // title list in create(), not a fixed set of allowed values.
+        const role = raw['Role']?.trim() || undefined;
+        const joinDate = raw['JoinDate'] || undefined;
+        const dateOfBirth = raw['DateOfBirth'] || undefined;
+        const basicPay = raw['BasicPay'] || undefined;
+
+        if (name.trim().length < 2) errors.push('Name is required (at least 2 characters).');
+        if (phone.trim().length < 5) errors.push('Phone is required (at least 5 characters).');
+        if (email && !EMAIL_RE.test(email)) errors.push('Email is not a valid address.');
+        if (!joinDate || !DATE_RE.test(joinDate)) errors.push('JoinDate is required, in YYYY-MM-DD format.');
+        if (dateOfBirth && !DATE_RE.test(dateOfBirth)) errors.push('DateOfBirth must be in YYYY-MM-DD format.');
+        if (role && role.length > 60) errors.push('Role must be 60 characters or fewer.');
+        if (basicPay && isNaN(Number(basicPay))) errors.push('BasicPay must be a number.');
+
+        if (phone) {
+          if (existingPhones.has(phone)) errors.push('Phone already belongs to an existing employee in this branch.');
+          else if (seenPhones.has(phone)) errors.push('Phone is duplicated elsewhere in this file.');
+          seenPhones.add(phone);
+        }
+        if (email) {
+          if (existingEmails.has(email)) errors.push('Email already belongs to an existing employee in this branch.');
+          else if (seenEmails.has(email)) errors.push('Email is duplicated elsewhere in this file.');
+          seenEmails.add(email);
+        }
+
+        return {
+          rowNumber: i + 2,
+          data: { name, phone, email, role, joinDate, dateOfBirth, basicPay },
+          errors,
+        };
+      }),
+    };
+  }
+
+  async bulkCreate(organizationId: string, rows: CreateEmployeeDto[]) {
+    if (rows.length > IMPORT_ROW_CAP) {
+      throw new BadRequestException(`This request has ${rows.length} rows — the maximum per import is ${IMPORT_ROW_CAP}.`);
+    }
+
+    const results: { rowNumber: number; success: boolean; employeeId?: string; error?: string }[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        // Bulk-imported rows never create a login, regardless of what's
+        // in the DTO — see the class doc comment above.
+        const { employee } = await this.create(organizationId, { ...rows[i], createLogin: false });
+        results.push({ rowNumber: i + 2, success: true, employeeId: employee.id });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to create this employee.';
+        results.push({ rowNumber: i + 2, success: false, error: message });
+      }
+    }
+    return { results };
   }
 }

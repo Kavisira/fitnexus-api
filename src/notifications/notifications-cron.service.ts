@@ -89,6 +89,13 @@ export class NotificationsCronService {
         continue;
       }
 
+      // Collect every (lead, offset) pair that's actually due right now
+      // first, then check which have already fired with ONE batched
+      // query instead of a separate findFirst per pair — this used to
+      // be an N+1 (one round-trip per lead per offset, every 5 minutes,
+      // scaling with lead volume). Same dedup/notify logic as before,
+      // just batched.
+      const dueCandidates: { lead: (typeof orgLeads)[number]; offset: Offset; groupKey: string }[] = [];
       for (const lead of orgLeads) {
         const due = lead.nextFollowUpAt!.getTime();
         for (const offset of offsets) {
@@ -96,23 +103,32 @@ export class NotificationsCronService {
           if (now.getTime() < targetTime) {
             continue; // this offset isn't due yet
           }
-
-          const groupKey = `lead-followup:${lead.id}:${due}:${offset.value}${offset.unit}`;
-          const alreadyFired = await this.prisma.notification.findFirst({ where: { organizationId, groupKey } });
-          if (alreadyFired) {
-            continue;
-          }
-
-          const label = offset.value === 0 ? 'now' : `in ${offset.value} ${offset.unit.toLowerCase()}`;
-          await this.notificationsService.notify(organizationId, {
-            type: 'LEAD_OVERDUE',
-            title: 'Lead follow-up due',
-            message: `${lead.name}'s follow-up is due ${label}.`,
-            entityType: 'lead',
-            entityId: lead.id,
-            groupKey,
-          });
+          dueCandidates.push({ lead, offset, groupKey: `lead-followup:${lead.id}:${due}:${offset.value}${offset.unit}` });
         }
+      }
+      if (!dueCandidates.length) {
+        continue;
+      }
+
+      const alreadyFired = await this.prisma.notification.findMany({
+        where: { organizationId, groupKey: { in: dueCandidates.map((c) => c.groupKey) } },
+        select: { groupKey: true },
+      });
+      const firedKeys = new Set(alreadyFired.map((n) => n.groupKey));
+
+      for (const { lead, offset, groupKey } of dueCandidates) {
+        if (firedKeys.has(groupKey)) {
+          continue;
+        }
+        const label = offset.value === 0 ? 'now' : `in ${offset.value} ${offset.unit.toLowerCase()}`;
+        await this.notificationsService.notify(organizationId, {
+          type: 'LEAD_OVERDUE',
+          title: 'Lead follow-up due',
+          message: `${lead.name}'s follow-up is due ${label}.`,
+          entityType: 'lead',
+          entityId: lead.id,
+          groupKey,
+        });
       }
     }
   }

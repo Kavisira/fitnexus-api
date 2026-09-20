@@ -15,8 +15,11 @@ import { ExpensesModule } from './expenses/expenses.module';
 import { LeaveModule } from './leave/leave.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { AttendanceModule } from './attendance/attendance.module';
+import { PayrollModule } from './payroll/payroll.module';
+import { PerformanceModule } from './performance/performance.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { VersionModule } from './version/version.module';
+import { OrganizationModule } from './organization/organization.module';
 
 @Module({
   imports: [
@@ -37,7 +40,10 @@ import { VersionModule } from './version/version.module';
     ExpensesModule,
     LeaveModule,
     AttendanceModule,
+    PayrollModule,
+    PerformanceModule,
     AlertsModule,
+    OrganizationModule,
     DashboardModule,
     VersionModule,
   ],

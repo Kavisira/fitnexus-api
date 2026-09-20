@@ -28,7 +28,14 @@ export class ExpensesController {
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
-    return this.expensesService.findAll(user.organizationId, user.branchId, { branchId, category, from, to });
+    // branchId/category may arrive as comma-separated lists from the
+    // multi-select filter panel; a single value still works.
+    return this.expensesService.findAll(user.organizationId, user.branchId, {
+      branchIds: branchId ? branchId.split(',').filter(Boolean) : undefined,
+      categories: category ? category.split(',').filter(Boolean) : undefined,
+      from,
+      to,
+    });
   }
 
   @Get(':id')
