@@ -8,6 +8,7 @@ import { MembersService } from './members.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { CreateMetricEntryDto } from './dto/create-metric-entry.dto';
+import { ParseMembersCsvDto, CommitMembersImportDto } from './dto/import-members.dto';
 
 @Controller('members')
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -34,10 +35,14 @@ export class MembersController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    const effectiveBranchId = user.branchId ?? branchId;
+    // branchId/status may now arrive as comma-separated lists from the
+    // multi-select filter panel (e.g. "b1,b2"); a single value still works.
+    const branchIds = branchId ? branchId.split(',').filter(Boolean) : undefined;
+    const statuses = status ? status.split(',').filter(Boolean) : undefined;
+    const effectiveBranchIds = user.branchId ? [user.branchId] : branchIds;
     return this.membersService.findAll(user.organizationId, {
-      branchId: effectiveBranchId,
-      status,
+      branchIds: effectiveBranchIds,
+      statuses,
       search,
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
@@ -74,5 +79,20 @@ export class MembersController {
   @RequirePermission(Screen.MEMBERS, 'read')
   listMetricEntries(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.membersService.listMetricEntries(user.organizationId, id);
+  }
+
+  // ---- Bulk import (CSV) — see MembersService's doc comment on the
+  // two-step parse-then-commit design. ----
+
+  @Post('import/parse')
+  @RequirePermission(Screen.MEMBERS, 'write')
+  parseImportCsv(@CurrentUser() user: AuthenticatedUser, @Body() dto: ParseMembersCsvDto) {
+    return this.membersService.parseImportCsv(user.organizationId, dto);
+  }
+
+  @Post('import/commit')
+  @RequirePermission(Screen.MEMBERS, 'write')
+  commitImport(@CurrentUser() user: AuthenticatedUser, @Body() dto: CommitMembersImportDto) {
+    return this.membersService.bulkCreate(user.organizationId, dto.rows);
   }
 }

@@ -5,6 +5,7 @@ import { ApplyLeaveDto } from './dto/apply-leave.dto';
 import { DecideLeaveDto } from './dto/decide-leave.dto';
 import { UpsertAllocationConfigDto } from './dto/upsert-allocation-config.dto';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { LeaveAllocationCronService } from './leave-allocation.cron';
 
 const ALL_LEAVE_TYPES: LeaveType[] = [LeaveType.CASUAL, LeaveType.SICK, LeaveType.EARNED];
 
@@ -22,7 +23,10 @@ const EMPLOYEE_SELECT = {
 
 @Injectable()
 export class LeaveService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private allocationCron: LeaveAllocationCronService,
+  ) {}
 
   // ---- Allocation config (Owner-managed) ----
 
@@ -37,11 +41,19 @@ export class LeaveService {
     if (dto.carryForwardCap < dto.monthlyAllocation) {
       throw new BadRequestException('Carry-forward cap cannot be lower than the monthly allocation.');
     }
-    return this.prisma.leaveAllocationConfig.upsert({
+    const config = await this.prisma.leaveAllocationConfig.upsert({
       where: { organizationId_role_leaveType: { organizationId, role: dto.role, leaveType: dto.leaveType } },
       create: { organizationId, role: dto.role, leaveType: dto.leaveType, monthlyAllocation: dto.monthlyAllocation, carryForwardCap: dto.carryForwardCap },
       update: { monthlyAllocation: dto.monthlyAllocation, carryForwardCap: dto.carryForwardCap },
     });
+
+    // Credit every active, logged-in employee with this role right
+    // now — otherwise nobody sees a balance until the 1st-of-month
+    // cron runs, which reads as "assigning leave to a role does
+    // nothing."
+    await this.allocationCron.allocateForConfig(config);
+
+    return config;
   }
 
   // ---- Self-service: my balance / my requests ----

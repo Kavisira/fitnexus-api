@@ -4,6 +4,17 @@ import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { CreateMetricEntryDto } from './dto/create-metric-entry.dto';
 import { S3Service } from '../uploads/s3.service';
+import { parseCsv, rowsToObjects } from '../common/csv.util';
+
+// Safety cap on a single bulk-import file — protects against someone
+// accidentally uploading a huge spreadsheet in one request; 1000 rows
+// is far beyond a realistic one-time member-roster import.
+const IMPORT_ROW_CAP = 1000;
+
+const GENDERS = ['MALE', 'FEMALE', 'OTHER'];
+const STATUSES = ['ACTIVE', 'INACTIVE'];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const BRANCH_SELECT = { id: true, location: true, currency: true, taxRatePercent: true };
 const PLAN_SELECT = { id: true, name: true, price: true, duration: true };
@@ -60,8 +71,9 @@ function addMonths(date: Date, months: number): Date {
 }
 
 export interface MemberFilters {
-  branchId?: string | null;
-  status?: string;
+  // Multi-select filter panel sends 0+ branch ids / statuses; empty/undefined means "no filter".
+  branchIds?: string[];
+  statuses?: string[];
   search?: string;
   // 1-based page number and page size — see findAll's doc comment.
   page?: number;
@@ -251,8 +263,10 @@ export class MembersService {
 
     const where = {
       organizationId,
-      ...(filters.branchId ? { branchId: filters.branchId } : {}),
-      ...(filters.status ? { status: filters.status as 'ACTIVE' | 'INACTIVE' } : {}),
+      ...(filters.branchIds && filters.branchIds.length > 0 ? { branchId: { in: filters.branchIds } } : {}),
+      ...(filters.statuses && filters.statuses.length > 0
+        ? { status: { in: filters.statuses as ('ACTIVE' | 'INACTIVE')[] } }
+        : {}),
       ...(filters.search
         ? {
             OR: [
@@ -406,5 +420,130 @@ export class MembersService {
       where: { memberId },
       orderBy: { recordedAt: 'asc' },
     });
+  }
+
+  // ---- Bulk import (CSV) ----
+  // Two-step, matching the frontend's "review before saving" flow:
+  // parseImportCsv() only reads and validates, nothing is written to
+  // the database — the parsed rows go back to the browser for the user
+  // to assign a Plan/Offer/Trainer to (in batches) before anything is
+  // committed. bulkCreate() is the actual write, called once the user
+  // clicks Save with every row's plan assignment attached.
+
+  /** Reads the uploaded CSV against `branchId` and returns one entry per
+   * data row with whatever validation errors it has (empty array = the
+   * row is ready to have a plan assigned). Duplicate phone/email is
+   * checked against this branch's existing members in one query rather
+   * than per-row, so a large file doesn't fire hundreds of lookups. */
+  async parseImportCsv(organizationId: string, dto: { branchId: string; csvContent: string }) {
+    await this.assertBranchInOrg(organizationId, dto.branchId);
+
+    const parsedRows = rowsToObjects(parseCsv(dto.csvContent));
+    if (parsedRows.length === 0) {
+      throw new BadRequestException('The CSV file has no data rows.');
+    }
+    if (parsedRows.length > IMPORT_ROW_CAP) {
+      throw new BadRequestException(`This file has ${parsedRows.length} rows — the maximum per import is ${IMPORT_ROW_CAP}. Split it into smaller files.`);
+    }
+
+    const phones = parsedRows.map((r) => r['Phone']).filter(Boolean);
+    const emails = parsedRows.map((r) => r['Email']).filter(Boolean);
+    const existing = await this.prisma.member.findMany({
+      where: {
+        organizationId,
+        branchId: dto.branchId,
+        OR: [...(phones.length ? [{ phone: { in: phones } }] : []), ...(emails.length ? [{ email: { in: emails } }] : [])],
+      },
+      select: { phone: true, email: true },
+    });
+    const existingPhones = new Set(existing.map((m) => m.phone));
+    const existingEmails = new Set(existing.map((m) => m.email).filter((e): e is string => !!e));
+
+    // A file can also list the same phone/email twice against itself —
+    // catch that separately from "already in the database".
+    const seenPhones = new Set<string>();
+    const seenEmails = new Set<string>();
+
+    return {
+      rows: parsedRows.map((raw, i) => {
+        const errors: string[] = [];
+        const name = raw['Name'] ?? '';
+        const phone = raw['Phone'] ?? '';
+        const email = raw['Email'] || undefined;
+        const dateOfBirth = raw['DateOfBirth'] || undefined;
+        const gender = raw['Gender'] ? raw['Gender'].toUpperCase() : undefined;
+        const bloodGroup = raw['BloodGroup'] || undefined;
+        const heightCmRaw = raw['HeightCm'] || undefined;
+        const goalWeightKgRaw = raw['GoalWeightKg'] || undefined;
+        const startDate = raw['StartDate'] || undefined;
+        const status = raw['Status'] ? raw['Status'].toUpperCase() : undefined;
+        const source = raw['Source'] || undefined;
+        const paymentMode = raw['PaymentMode'] || undefined;
+
+        if (name.trim().length < 2) errors.push('Name is required (at least 2 characters).');
+        if (!phone.trim()) errors.push('Phone is required.');
+        if (email && !EMAIL_RE.test(email)) errors.push('Email is not a valid address.');
+        if (dateOfBirth && !DATE_RE.test(dateOfBirth)) errors.push('DateOfBirth must be in YYYY-MM-DD format.');
+        if (startDate && !DATE_RE.test(startDate)) errors.push('StartDate must be in YYYY-MM-DD format.');
+        if (gender && !GENDERS.includes(gender)) errors.push('Gender must be MALE, FEMALE, or OTHER.');
+        if (status && !STATUSES.includes(status)) errors.push('Status must be ACTIVE or INACTIVE.');
+        if (heightCmRaw && (isNaN(Number(heightCmRaw)) || Number(heightCmRaw) < 30)) errors.push('HeightCm must be a number (at least 30).');
+        if (goalWeightKgRaw && (isNaN(Number(goalWeightKgRaw)) || Number(goalWeightKgRaw) < 1)) errors.push('GoalWeightKg must be a number.');
+
+        if (phone) {
+          if (existingPhones.has(phone)) errors.push('Phone already belongs to an existing member in this branch.');
+          else if (seenPhones.has(phone)) errors.push('Phone is duplicated elsewhere in this file.');
+          seenPhones.add(phone);
+        }
+        if (email) {
+          if (existingEmails.has(email)) errors.push('Email already belongs to an existing member in this branch.');
+          else if (seenEmails.has(email)) errors.push('Email is duplicated elsewhere in this file.');
+          seenEmails.add(email);
+        }
+
+        return {
+          rowNumber: i + 2, // +1 for 1-based, +1 for the header row
+          data: {
+            name,
+            phone,
+            email,
+            dateOfBirth,
+            gender,
+            bloodGroup,
+            heightCm: heightCmRaw ? Number(heightCmRaw) : undefined,
+            goalWeightKg: goalWeightKgRaw ? Number(goalWeightKgRaw) : undefined,
+            startDate,
+            status,
+            source,
+            paymentMode,
+          },
+          errors,
+        };
+      }),
+    };
+  }
+
+  /** The actual write — one CreateMemberDto per row (already carrying
+   * whichever plan/offer/trainer the review screen assigned), reusing
+   * create() so bulk-imported members go through exactly the same
+   * validation and business rules as a single manual create. Partial
+   * success by design: one bad row doesn't block the rest of the file
+   * from being saved. */
+  async bulkCreate(organizationId: string, rows: CreateMemberDto[]) {
+    if (rows.length > IMPORT_ROW_CAP) {
+      throw new BadRequestException(`This request has ${rows.length} rows — the maximum per import is ${IMPORT_ROW_CAP}.`);
+    }
+
+    const results: { rowNumber: number; success: boolean; memberId?: string; error?: string }[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        const member = await this.create(organizationId, rows[i]);
+        results.push({ rowNumber: i + 2, success: true, memberId: member.id });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to create this member.';
+        results.push({ rowNumber: i + 2, success: false, error: message });
+      }
+    }
+    return { results };
   }
 }

@@ -8,6 +8,8 @@ import { EmployeesService } from './employees.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { CreateEmployeeActivityDto } from './dto/create-employee-activity.dto';
+import { ParseEmployeesCsvDto, CommitEmployeesImportDto } from './dto/import-employees.dto';
+import { CreateJobTitleDto } from './dto/create-job-title.dto';
 
 @Controller('employees')
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -36,6 +38,20 @@ export class EmployeesController {
   ) {
     const effectiveBranchId = user.branchId ?? branchId;
     return this.employeesService.findAll(user.organizationId, { branchId: effectiveBranchId, role, status, search });
+  }
+
+  // Registered before the ':id' route below — otherwise Nest would
+  // match "job-titles" as an :id param instead of this literal path.
+  @Get('job-titles')
+  @RequirePermission(Screen.EMPLOYEES, 'read')
+  listJobTitles(@CurrentUser() user: AuthenticatedUser) {
+    return this.employeesService.listJobTitles(user.organizationId);
+  }
+
+  @Post('job-titles')
+  @RequirePermission(Screen.EMPLOYEES, 'write')
+  createJobTitle(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateJobTitleDto) {
+    return this.employeesService.ensureJobTitle(user.organizationId, dto.name);
   }
 
   @Get(':id')
@@ -82,5 +98,19 @@ export class EmployeesController {
   @RequirePermission(Screen.EMPLOYEES, 'read')
   getCredentials(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.employeesService.getCredentials(user.organizationId, id, user.role);
+  }
+
+  // ---- Bulk import (CSV) — see EmployeesService's doc comment. ----
+
+  @Post('import/parse')
+  @RequirePermission(Screen.EMPLOYEES, 'write')
+  parseImportCsv(@CurrentUser() user: AuthenticatedUser, @Body() dto: ParseEmployeesCsvDto) {
+    return this.employeesService.parseImportCsv(user.organizationId, dto);
+  }
+
+  @Post('import/commit')
+  @RequirePermission(Screen.EMPLOYEES, 'write')
+  commitImport(@CurrentUser() user: AuthenticatedUser, @Body() dto: CommitEmployeesImportDto) {
+    return this.employeesService.bulkCreate(user.organizationId, dto.rows);
   }
 }
