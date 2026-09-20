@@ -1,5 +1,6 @@
-import { IsDateString, IsEmail, IsIn, IsNumberString, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
-import { EMPLOYEE_ROLES } from './create-employee.dto';
+import { IsArray, IsDateString, IsEmail, IsIn, IsNumberString, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { SalaryComponentDto } from './salary-component.dto';
 
 const EMPLOYMENT_STATUSES = ['ACTIVE', 'INACTIVE'] as const;
 
@@ -25,8 +26,9 @@ export class UpdateEmployeeDto {
   branchId?: string;
 
   @IsOptional()
-  @IsIn(EMPLOYEE_ROLES)
-  role?: (typeof EMPLOYEE_ROLES)[number];
+  @IsString()
+  @MaxLength(60)
+  role?: string;
 
   @IsOptional()
   @IsIn(EMPLOYMENT_STATUSES)
@@ -47,4 +49,13 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsNumberString()
   basicPay?: string | null;
+
+  // Full replace-set on every save (see EmployeesService.replaceSalaryComponents)
+  // — omit the field entirely to leave the existing components
+  // untouched; send an empty array to clear them all.
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SalaryComponentDto)
+  components?: SalaryComponentDto[];
 }

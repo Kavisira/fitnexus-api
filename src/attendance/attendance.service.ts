@@ -2,6 +2,16 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateHolidayDto } from './dto/create-holiday.dto';
 
+// Defensive upper bound on raw-punch reads below. These queries are
+// already scoped to a single day or month (not truly unbounded like
+// Members used to be), but nothing previously capped how many rows
+// could come back for one branch/date-range — a very high-traffic
+// branch or a bad ADMS device flooding punches could still return an
+// unbounded result set. This caps it as a safety net; it does not
+// change behavior for any realistic gym (a branch would need >20k
+// punches in the query's date range to ever hit it).
+const PUNCH_QUERY_CAP = 20_000;
+
 function startOfDay(d: Date): Date {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -36,6 +46,7 @@ export class AttendanceService {
           ...(branchId ? { branchId } : {}),
         },
         select: { memberId: true, branchId: true },
+        take: PUNCH_QUERY_CAP,
       }),
     ]);
 
@@ -176,6 +187,7 @@ export class AttendanceService {
         const punches = await this.prisma.attendancePunch.findMany({
           where: { organizationId, personType: 'EMPLOYEE', employeeId: { in: employeeIds }, punchTime: { gte: today, lt: nextDay } },
           select: { employeeId: true },
+          take: PUNCH_QUERY_CAP,
         });
         const distinct = new Set(punches.filter((p) => p.employeeId).map((p) => p.employeeId)).size;
         byDate.set(key, { present: distinct, absent: 0, halfDay: 0, onLeave: 0, holiday: 0, final: false });
@@ -191,7 +203,7 @@ export class AttendanceService {
     const where: any = { organizationId, personType: 'MEMBER', memberId: { not: null }, punchTime: { gte: from, lt: to } };
     if (branchId) where.branchId = branchId;
 
-    const punches = await this.prisma.attendancePunch.findMany({ where, select: { memberId: true, punchTime: true } });
+    const punches = await this.prisma.attendancePunch.findMany({ where, select: { memberId: true, punchTime: true }, take: PUNCH_QUERY_CAP });
     const byDate = new Map<string, Set<string>>();
     for (const p of punches) {
       const key = p.punchTime.toISOString().slice(0, 10);
@@ -222,11 +234,13 @@ export class AttendanceService {
         where: empWhere,
         include: { employee: { select: { id: true, name: true, photoUrl: true } } },
         orderBy: { punchTime: 'asc' },
+        take: PUNCH_QUERY_CAP,
       }),
       this.prisma.attendancePunch.findMany({
         where: memWhere,
         include: { member: { select: { id: true, name: true } } },
         orderBy: { punchTime: 'asc' },
+        take: PUNCH_QUERY_CAP,
       }),
     ]);
 

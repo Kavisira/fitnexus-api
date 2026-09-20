@@ -1,6 +1,6 @@
-import { IsBoolean, IsDateString, IsEmail, IsIn, IsNumberString, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
-
-export const EMPLOYEE_ROLES = ['MANAGER', 'TRAINER', 'FRONT_DESK', 'OTHER'] as const;
+import { IsArray, IsBoolean, IsDateString, IsEmail, IsNumberString, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { SalaryComponentDto } from './salary-component.dto';
 
 export class CreateEmployeeDto {
   @IsString()
@@ -22,9 +22,12 @@ export class CreateEmployeeDto {
   @IsString()
   branchId!: string;
 
+  // Free-form job title — matched against (or added to) this org's
+  // managed job title list; see EmployeesService.ensureJobTitle.
   @IsOptional()
-  @IsIn(EMPLOYEE_ROLES)
-  role?: (typeof EMPLOYEE_ROLES)[number];
+  @IsString()
+  @MaxLength(60)
+  role?: string;
 
   @IsString()
   joinDate!: string;
@@ -50,4 +53,13 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsBoolean()
   createLogin?: boolean;
+
+  // Full replace-set on every save (see EmployeesService.replaceSalaryComponents)
+  // — omit entirely to leave the employee with no components, don't
+  // try to send a partial diff.
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SalaryComponentDto)
+  components?: SalaryComponentDto[];
 }

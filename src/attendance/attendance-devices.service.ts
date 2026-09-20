@@ -1,14 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
-import { BiometricVendorType, PunchPersonType } from '@prisma/client';
+import { BiometricVendorType, PunchDirection, PunchPersonType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { UpsertEnrollmentDto } from './dto/upsert-enrollment.dto';
+import { SimulatePunchDto } from './dto/simulate-punch.dto';
+import { AttendanceIngestService } from './attendance-ingest.service';
 
 @Injectable()
 export class AttendanceDevicesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private ingestService: AttendanceIngestService,
+  ) {}
 
   private async assertBranch(organizationId: string, branchId: string) {
     const branch = await this.prisma.branch.findFirst({ where: { id: branchId, organizationId } });
@@ -138,5 +143,26 @@ export class AttendanceDevicesService {
       orderBy: { punchTime: 'desc' },
       take: 100,
     });
+  }
+
+  /** Manually fires one punch against a real device row, going through
+   * the exact same AttendanceIngestService.recordPunches() logic a
+   * real machine's ingestion call uses — so the whole downstream
+   * pipeline (raw punch storage, nightly aggregation, calendars,
+   * absentee detection) can be tested end to end without physical
+   * biometric hardware. Works for any vendor type, since it bypasses
+   * the device-auth step entirely (the caller is already an
+   * authenticated Owner/manager with ATTENDANCE write access, not the
+   * device itself). */
+  async simulatePunch(organizationId: string, deviceId: string, dto: SimulatePunchDto) {
+    const device = await this.findOne(organizationId, deviceId);
+    const result = await this.ingestService.recordPunches(organizationId, device.branchId, device.id, [
+      {
+        biometricUserId: dto.biometricUserId,
+        punchTime: dto.timestamp ? new Date(dto.timestamp) : new Date(),
+        direction: dto.direction ?? PunchDirection.UNKNOWN,
+      },
+    ]);
+    return result;
   }
 }

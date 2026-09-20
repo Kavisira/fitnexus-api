@@ -81,27 +81,40 @@ export class S3Service {
   }
 
   /** Decodes a `data:image/...;base64,...` URL and uploads it under
-   * `<folder>/<ownerId>/<uuid>.<ext>`, returning the public URL to store
-   * on the record (MemberMetricEntry.photoUrl or Member.photoUrl).
-   * `folder` defaults to the original "member-checkins" prefix used for
-   * progress-check-in photos; profile photos pass 'member-profiles'
-   * instead so the two stay separated in the bucket. */
-  async uploadDataUrl(ownerId: string, dataUrl: string, folder = 'member-checkins'): Promise<string> {
+   * `member-checkins/<memberId>/<uuid>.<ext>`, returning the public URL
+   * to store on the MemberMetricEntry row. */
+  async uploadDataUrl(memberId: string, dataUrl: string): Promise<string> {
+    return this.uploadDataUrlUnder(`member-checkins/${memberId}`, dataUrl);
+  }
+
+  /** Same decode-and-upload as uploadDataUrl, but under
+   * `org-logos/<organizationId>/<uuid>.<ext>` — used by Organization
+   * Settings' one-time logo upload (see OrganizationService). The
+   * resulting public URL is stored on Organization.logoUrl and reused
+   * everywhere the org's identity appears in a generated document
+   * (payslip PDFs today). Logos keep their original format (PNG stays
+   * PNG) rather than being re-encoded, since a transparent-background
+   * logo re-saved as JPEG would gain a white background. */
+  async uploadOrgLogo(organizationId: string, dataUrl: string): Promise<string> {
+    return this.uploadDataUrlUnder(`org-logos/${organizationId}`, dataUrl);
+  }
+
+  private async uploadDataUrlUnder(prefix: string, dataUrl: string): Promise<string> {
     if (!this.client || !this.bucket) {
       throw new ServiceUnavailableException(
-        'Photo storage isn\'t configured yet — set the AWS_S3_*/Supabase Storage environment variables on the server.',
+        'File storage isn\'t configured yet — set the AWS_S3_*/Supabase Storage environment variables on the server.',
       );
     }
 
     const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl);
     if (!match) {
-      throw new ServiceUnavailableException('Photo data was not a valid image.');
+      throw new ServiceUnavailableException('Uploaded data was not a valid image.');
     }
     const [, mimeType, base64] = match;
     const extension = mimeType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg';
     const buffer = Buffer.from(base64, 'base64');
 
-    const key = `${folder}/${ownerId}/${randomUUID()}.${extension}`;
+    const key = `${prefix}/${randomUUID()}.${extension}`;
 
     await this.client.send(
       new PutObjectCommand({

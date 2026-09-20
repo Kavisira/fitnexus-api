@@ -116,14 +116,25 @@ export class NotificationsService {
 
   /** Counts distinct *groups* with at least one unread notification —
    * a notification without a groupKey counts as its own group of one.
-   * This is what the bell badge shows, not a raw notification count. */
+   * This is what the bell badge shows, not a raw notification count.
+   *
+   * Done as two DB-side aggregates instead of loading every unread row
+   * into Node and deduping with a Set (the previous approach) — this
+   * badge count gets hit often (bell dropdown, polling), and an org
+   * with a large unread backlog shouldn't mean transferring every one
+   * of those rows just to count them. */
   async unreadGroupCount(organizationId: string): Promise<number> {
-    const unread = await this.prisma.notification.findMany({
-      where: { organizationId, closedAt: null, read: false },
-      select: { id: true, groupKey: true },
-    });
-    const groups = new Set(unread.map((n) => n.groupKey ?? n.id));
-    return groups.size;
+    const baseWhere = { organizationId, closedAt: null, read: false };
+    const [distinctGroups, ungroupedCount] = await Promise.all([
+      this.prisma.notification.groupBy({
+        by: ['groupKey'],
+        where: { ...baseWhere, groupKey: { not: null } },
+      }),
+      this.prisma.notification.count({
+        where: { ...baseWhere, groupKey: null },
+      }),
+    ]);
+    return distinctGroups.length + ungroupedCount;
   }
 
   async markRead(organizationId: string, id: string) {

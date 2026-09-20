@@ -4,8 +4,9 @@ import { CreateExpenseDto } from './dto/create-expense.dto';
 import { UpdateExpenseDto } from './dto/update-expense.dto';
 
 export interface ExpenseFilters {
-  branchId?: string;
-  category?: string;
+  // Multi-select filter panel — 0+ branches/categories; empty/undefined = no filter.
+  branchIds?: string[];
+  categories?: string[];
   from?: string;
   to?: string;
 }
@@ -46,12 +47,14 @@ export class ExpensesService {
    * the owner (ownBranchId: null) can freely filter/see across branches.
    * Same pattern as LeadsController/BranchesController. */
   findAll(organizationId: string, ownBranchId: string | null | undefined, filters: ExpenseFilters) {
-    const effectiveBranchId = ownBranchId ?? filters.branchId;
+    const effectiveBranchIds = ownBranchId ? [ownBranchId] : filters.branchIds;
     return this.prisma.expense.findMany({
       where: {
         organizationId,
-        ...(effectiveBranchId ? { branchId: effectiveBranchId } : {}),
-        ...(filters.category ? { category: filters.category as never } : {}),
+        ...(effectiveBranchIds && effectiveBranchIds.length > 0 ? { branchId: { in: effectiveBranchIds } } : {}),
+        ...(filters.categories && filters.categories.length > 0
+          ? { category: { in: filters.categories as never[] } }
+          : {}),
         ...(filters.from || filters.to
           ? {
               expenseDate: {

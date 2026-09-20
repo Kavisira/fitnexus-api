@@ -11,6 +11,7 @@ import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { UpsertEnrollmentDto } from './dto/upsert-enrollment.dto';
 import { CreateHolidayDto } from './dto/create-holiday.dto';
+import { SimulatePunchDto } from './dto/simulate-punch.dto';
 
 @Controller('attendance')
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -38,6 +39,18 @@ export class AttendanceController {
     @Query('month') month: string,
   ) {
     return this.attendanceService.employeeMonthlySummary(user.organizationId, employeeId, Number(year), Number(month));
+  }
+
+  // ---- Self-service: My Workspace's Attendance Tracker tab. No
+  // @RequirePermission — every logged-in employee (not the Owner, who
+  // has no Employee record) can see their own attendance, same pattern
+  // as LeaveController's myBalance/myRequests. ----
+  @Get('me/monthly')
+  myMonthly(@CurrentUser() user: AuthenticatedUser, @Query('year') year: string, @Query('month') month: string) {
+    if (!user.employeeId) {
+      return { employeeId: null, employeeName: '', year: Number(year), month: Number(month), days: [], summary: { PRESENT: 0, ABSENT: 0, HALF_DAY: 0, ON_LEAVE: 0, HOLIDAY: 0 } };
+    }
+    return this.attendanceService.employeeMonthlySummary(user.organizationId, user.employeeId, Number(year), Number(month));
   }
 
   @Get('calendar/staff')
@@ -150,6 +163,17 @@ export class AttendanceController {
   @RequirePermission(Screen.ATTENDANCE, 'write')
   rotateKey(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.devicesService.rotateApiKey(user.organizationId, id);
+  }
+
+  /** Manually fires a test punch against this device — for testing the
+   * full attendance pipeline without a physical biometric machine. See
+   * AttendanceDevicesService.simulatePunch for what it does under the
+   * hood (goes through the identical recordPunches() logic a real
+   * device's ingestion call uses). */
+  @Post('devices/:id/simulate-punch')
+  @RequirePermission(Screen.ATTENDANCE, 'write')
+  simulatePunch(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: SimulatePunchDto) {
+    return this.devicesService.simulatePunch(user.organizationId, id, dto);
   }
 
   // ---- Enrollments ----
