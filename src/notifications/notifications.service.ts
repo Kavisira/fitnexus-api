@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UpdateNotificationSetupDto } from './dto/update-notification-setup.dto';
 import { UpdateNotificationConfigDto } from './dto/update-notification-config.dto';
 import { NotificationsGateway } from './notifications.gateway';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { EmailService } from '../email/email.service';
 
 // Sensible starting defaults for each type — everything that works
 // today (leads) is on; the not-yet-wired types (birthday/expiry) are
@@ -27,6 +29,17 @@ export interface NotifyInput {
   // Overrides the configured severity for this one notification, if
   // the caller has a better sense of urgency than the static default.
   severity?: NotificationSeverity;
+  // Who the WhatsApp/Email channels (if this type's config has them
+  // enabled — see `notify` below) should actually reach. Optional and
+  // separate from the in-app notification itself, which is always
+  // org-wide (every admin with access sees it in the bell) regardless
+  // of whether a specific recipient is given — e.g. a lead assignment
+  // notifies the assigned employee externally but still shows in every
+  // admin's in-app list. Callers that have no sensible single
+  // recipient (there isn't one today, but a future org-wide type
+  // might not) simply omit this and only the in-app notification is
+  // created, same as before this field existed.
+  recipient?: { phone?: string | null; email?: string | null; name?: string };
 }
 
 @Injectable()
@@ -34,6 +47,8 @@ export class NotificationsService {
   constructor(
     private prisma: PrismaService,
     private gateway: NotificationsGateway,
+    private whatsapp: WhatsappService,
+    private email: EmailService,
   ) {}
 
   // ---- Setup (org-wide master switch) ----
@@ -213,6 +228,21 @@ export class NotificationsService {
     // Push it live to every connected client in the organization —
     // the REST list is still the source of truth on page load/refresh.
     this.gateway.emitToOrganization(organizationId, notification);
+
+    // External channels — fire-and-forget, same reasoning as every
+    // other WhatsappService/EmailService call site in this app: a
+    // delivery problem must never fail the notification itself, which
+    // already exists in-app regardless of what happens here. Each
+    // channel only fires when BOTH this type's config has it enabled
+    // AND the caller actually gave a destination for it — a type with
+    // no sensible single recipient (see NotifyInput.recipient's
+    // comment) simply never reaches this far down.
+    if (config.whatsappEnabled && input.recipient?.phone) {
+      void this.whatsapp.sendNotification(input.recipient.phone, input.title, input.message);
+    }
+    if (config.emailEnabled && input.recipient?.email) {
+      void this.email.sendNotification(input.recipient.email, input.title, input.message);
+    }
 
     return notification;
   }

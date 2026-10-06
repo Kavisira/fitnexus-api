@@ -49,7 +49,7 @@ export class PayslipPdfService {
       doc.on('error', reject);
     });
 
-    await this.drawHeader(doc, organization);
+    await this.drawHeader(doc, organization, payslip.employee.branch);
     this.drawEmployeeInfo(doc, payslip);
     this.drawEarningsDeductions(doc, payslip);
     this.drawSummary(doc, payslip);
@@ -59,9 +59,14 @@ export class PayslipPdfService {
     return done;
   }
 
-  private async drawHeader(doc: PDFKit.PDFDocument, organization: Pick<Organization, 'name' | 'logoUrl'>): Promise<void> {
+  private async drawHeader(
+    doc: PDFKit.PDFDocument,
+    organization: Pick<Organization, 'name' | 'logoUrl'>,
+    branch: Pick<Branch, 'location' | 'address'>,
+  ): Promise<void> {
     const logoBuffer = organization.logoUrl ? await this.tryFetchLogo(organization.logoUrl) : null;
     const textLeft = logoBuffer ? 48 + 56 + 12 : 48;
+    const textWidth = 500 - (textLeft - 48);
 
     if (logoBuffer) {
       try {
@@ -76,15 +81,32 @@ export class PayslipPdfService {
       .fontSize(16)
       .fillColor('#111827')
       .font('Helvetica-Bold')
-      .text(organization.name, textLeft, 48, { width: 500 - (textLeft - 48) });
+      .text(organization.name, textLeft, 48, { width: textWidth });
     doc
       .fontSize(10)
       .fillColor('#6b7280')
       .font('Helvetica')
       .text('Payslip', textLeft, 70);
 
-    doc.moveTo(48, 112).lineTo(547, 112).strokeColor('#e5e7eb').stroke();
-    doc.y = 124;
+    // Branch address, not an org-wide one — a multi-branch gym has a
+    // different address per branch, and this payslip is already tied
+    // to one specific branch (the employee's), so that's the address
+    // that's actually correct here. `location` is always present
+    // (mandatory on Branch); `address` is optional free text, appended
+    // after a comma when set. Printed with doc.y tracking rather than
+    // a fixed y-coordinate since the combined string can wrap to two
+    // lines depending on length, and the divider below needs to land
+    // after whatever that turns out to be.
+    const addressLine = branch.address ? `${branch.location}, ${branch.address}` : branch.location;
+    doc
+      .fontSize(9)
+      .fillColor('#6b7280')
+      .font('Helvetica')
+      .text(addressLine, textLeft, 84, { width: textWidth });
+
+    const dividerY = Math.max(112, doc.y + 10);
+    doc.moveTo(48, dividerY).lineTo(547, dividerY).strokeColor('#e5e7eb').stroke();
+    doc.y = dividerY + 12;
   }
 
   private async tryFetchLogo(logoUrl: string): Promise<Buffer | null> {

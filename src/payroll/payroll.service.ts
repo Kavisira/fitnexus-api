@@ -3,6 +3,12 @@ import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { GeneratePayrollDto } from './dto/generate-payroll.dto';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 
 interface ComponentSnapshotRow {
   name: string;
@@ -23,7 +29,10 @@ function requireOwner(user: AuthenticatedUser): void {
 
 @Injectable()
 export class PayrollService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsapp: WhatsappService,
+  ) {}
 
   /** Generates (or re-generates) one payslip per active employee for
    * the given month. LOP days come straight from that month's
@@ -103,6 +112,12 @@ export class PayrollService {
       });
 
       results.push({ employeeId: employee.id, employeeName: employee.name, netPay: Number(payslip.netPay) });
+
+      // Fire-and-forget, same reasoning as LeaveService's decision
+      // notice — WhatsappService fails soft, and a slow/failed send
+      // must never stall or fail a payroll run for the rest of the
+      // org's employees.
+      void this.whatsapp.sendPayslipReady(employee.phone, employee.name, `${MONTH_NAMES[month - 1]} ${year}`);
     }
 
     return { generated: results.length, results };

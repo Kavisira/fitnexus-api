@@ -7,6 +7,8 @@ import { NotificationsGateway } from './notifications.gateway';
 import { NotificationsCronService } from './notifications-cron.service';
 import { AuthModule } from '../auth/auth.module';
 import { RolesModule } from '../roles/roles.module';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { RolesModule } from '../roles/roles.module';
     // Employees/Leads/BranchesModule import both, not just AuthModule.
     AuthModule,
     RolesModule,
+    WhatsappModule,
+    EmailModule,
     // Own JwtModule registration (same secret/env var as AuthModule)
     // since AuthModule doesn't export its own — needed here so the
     // WebSocket gateway can verify a connecting client's token by hand

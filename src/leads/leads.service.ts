@@ -6,7 +6,7 @@ import { CreateLeadActivityDto } from './dto/create-lead-activity.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 
 const BRANCH_SELECT = { id: true, location: true };
-const ASSIGNED_EMPLOYEE_SELECT = { id: true, name: true };
+const ASSIGNED_EMPLOYEE_SELECT = { id: true, name: true, phone: true, email: true };
 
 export interface LeadOwnership {
   userId: string;
@@ -66,7 +66,7 @@ export class LeadsService {
   async create(organizationId: string, createdByUserId: string, dto: CreateLeadDto) {
     await this.assertBranchInOrg(organizationId, dto.branchId);
 
-    let assignedEmployee: { id: string; name: string } | null = null;
+    let assignedEmployee: { id: string; name: string; phone: string; email: string | null } | null = null;
     if (dto.assignedToEmployeeId) {
       assignedEmployee = await this.assertEmployeeInOrg(organizationId, dto.assignedToEmployeeId);
     }
@@ -96,6 +96,7 @@ export class LeadsService {
         message: `${lead.name} was assigned to ${assignedEmployee.name}.`,
         entityType: 'lead',
         entityId: lead.id,
+        recipient: { phone: assignedEmployee.phone, email: assignedEmployee.email, name: assignedEmployee.name },
       });
     }
 
@@ -163,7 +164,7 @@ export class LeadsService {
       await this.assertBranchInOrg(organizationId, dto.branchId);
     }
 
-    let assignedEmployee: { id: string; name: string } | null = null;
+    let assignedEmployee: { id: string; name: string; phone: string; email: string | null } | null = null;
     if (dto.assignedToEmployeeId) {
       assignedEmployee = await this.assertEmployeeInOrg(organizationId, dto.assignedToEmployeeId);
     }
@@ -235,6 +236,7 @@ export class LeadsService {
         message: `${updated.name} was assigned to ${assignedEmployee.name}.`,
         entityType: 'lead',
         entityId: id,
+        recipient: { phone: assignedEmployee.phone, email: assignedEmployee.email, name: assignedEmployee.name },
       });
     }
 

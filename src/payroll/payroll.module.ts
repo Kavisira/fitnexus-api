@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { PayrollController } from './payroll.controller';
 import { PayrollService } from './payroll.service';
 import { PayslipPdfService } from './payslip-pdf.service';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, WhatsappModule],
   controllers: [PayrollController],
   providers: [PayrollService, PayslipPdfService],
 })

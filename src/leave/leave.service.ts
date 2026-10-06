@@ -6,6 +6,7 @@ import { DecideLeaveDto } from './dto/decide-leave.dto';
 import { UpsertAllocationConfigDto } from './dto/upsert-allocation-config.dto';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { LeaveAllocationCronService } from './leave-allocation.cron';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 const ALL_LEAVE_TYPES: LeaveType[] = [LeaveType.CASUAL, LeaveType.SICK, LeaveType.EARNED];
 
@@ -26,6 +27,7 @@ export class LeaveService {
   constructor(
     private prisma: PrismaService,
     private allocationCron: LeaveAllocationCronService,
+    private whatsapp: WhatsappService,
   ) {}
 
   // ---- Allocation config (Owner-managed) ----
@@ -202,7 +204,26 @@ export class LeaveService {
           decisionNote: dto.decisionNote,
           decidedAt: new Date(),
         },
+        include: { employee: { select: { name: true, phone: true } } },
       });
+    }).then((decided) => {
+      // Outside the transaction on purpose — this is a notification,
+      // not part of the decision's atomicity, and WhatsappService
+      // fails soft on its own (see its class comment), so a slow or
+      // failed send can't hold the DB transaction open or roll back a
+      // decision that already succeeded.
+      void this.whatsapp.sendLeaveDecision(
+        decided.employee.phone,
+        decided.employee.name,
+        this.leaveTypeLabel(decided.leaveType),
+        approve,
+        dto.decisionNote,
+      );
+      return decided;
     });
+  }
+
+  private leaveTypeLabel(type: LeaveType): string {
+    return type.charAt(0) + type.slice(1).toLowerCase();
   }
 }
