@@ -47,6 +47,11 @@ export class WhatsappService {
   private readonly phoneNumberId: string | undefined;
   private readonly apiVersion: string;
 
+  /** Meta's pre-approved, parameter-free template available on every
+   * WhatsApp Business account with zero setup — used as a stand-in
+   * while a real template awaits Meta business verification/approval. */
+  private static readonly DEFAULT_TEST_TEMPLATE = 'hello_world';
+
   constructor(private config: ConfigService) {
     this.accessToken = this.config.get<string>('WHATSAPP_ACCESS_TOKEN')?.trim() || undefined;
     this.phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID')?.trim() || undefined;
@@ -136,9 +141,26 @@ export class WhatsappService {
    * OtpService.issue). Requires an approved "otp_code" Authentication
    * template in Meta Business Manager with a single {{1}} body
    * placeholder plus a COPY_CODE button; override the template name
-   * via WHATSAPP_TEMPLATE_OTP if yours is named differently. */
+   * via WHATSAPP_TEMPLATE_OTP if yours is named differently.
+   *
+   * Interim mode: until your own "otp_code" template is approved
+   * (requires Meta business document verification, not yet
+   * submitted), WHATSAPP_TEMPLATE_OTP can point at Meta's built-in
+   * "hello_world" test template instead, so the integration can be
+   * exercised end-to-end today. hello_world has no {{1}} placeholder
+   * and no button, so the OTP code is NOT actually delivered via
+   * WhatsApp in that mode — it's a connectivity/wiring test only.
+   * The OTP itself still goes out over whichever channel actually
+   * carries it (email, or the OTP_DEBUG_EXPOSE dev flag). Swap the
+   * env var to your real template name once it's approved and this
+   * starts sending the real code automatically — no code change
+   * needed. */
   async sendOtp(phone: string, code: string): Promise<void> {
     const template = this.config.get<string>('WHATSAPP_TEMPLATE_OTP') ?? 'otp_code';
+    if (template === WhatsappService.DEFAULT_TEST_TEMPLATE) {
+      await this.sendTemplate({ to: phone, template });
+      return;
+    }
     await this.sendTemplate({ to: phone, template, params: [code], buttonCode: code });
   }
 
@@ -185,5 +207,17 @@ export class WhatsappService {
   async sendNotification(phone: string, title: string, message: string): Promise<void> {
     const template = this.config.get<string>('WHATSAPP_TEMPLATE_GENERIC') ?? 'general_notification';
     await this.sendTemplate({ to: phone, template, params: [title, message] });
+  }
+
+  /** A public form link (review/feedback form) just generated for a
+   * member — requires an approved template (default name
+   * "form_link_share") with placeholders {{1}} member name, {{2}} form
+   * name, {{3}} the public URL. Same approval dependency as every
+   * other template here — see WHATSAPP_TEMPLATE_OTP's doc comment for
+   * the interim-testing note; this one has no hello_world equivalent
+   * since every template needs its own approval regardless. */
+  async sendFormLink(phone: string, memberName: string, formName: string, url: string): Promise<void> {
+    const template = this.config.get<string>('WHATSAPP_TEMPLATE_FORM_LINK') ?? 'form_link_share';
+    await this.sendTemplate({ to: phone, template, params: [memberName, formName, url] });
   }
 }

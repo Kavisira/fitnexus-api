@@ -20,6 +20,8 @@ import { PerformanceModule } from './performance/performance.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { VersionModule } from './version/version.module';
 import { OrganizationModule } from './organization/organization.module';
+import { FormsModule } from './forms/forms.module';
+import { FitnessModule } from './fitness/fitness.module';
 
 @Module({
   imports: [
@@ -46,6 +48,8 @@ import { OrganizationModule } from './organization/organization.module';
     OrganizationModule,
     DashboardModule,
     VersionModule,
+    FormsModule,
+    FitnessModule,
   ],
 })
 export class AppModule {}

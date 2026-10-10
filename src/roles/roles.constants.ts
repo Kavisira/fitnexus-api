@@ -17,6 +17,8 @@ export const ALL_SCREENS: Screen[] = [
   Screen.PLANS,
   Screen.EXPENSES,
   Screen.LEAVES,
+  Screen.FORMS,
+  Screen.FITNESS,
 ];
 
 // Roles whose access is governed by the RolePermission matrix. OWNER is

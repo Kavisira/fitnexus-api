@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { OtpChannel, OtpPurpose, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizePhone } from '../common/phone.util';
 import { OTP_DEBUG_EXPOSE, OtpService } from './otp.service';
 import { RegisterDto } from './dto/register.dto';
 import { VerifyRegisterOtpDto } from './dto/verify-register-otp.dto';
@@ -26,8 +27,9 @@ export class AuthService {
   /** Step 1 of registration: create the org + a not-yet-verified user,
    * then send an OTP to both email and phone. */
   async register(dto: RegisterDto) {
+    const phone = normalizePhone(dto.phone);
     const existing = await this.prisma.user.findFirst({
-      where: { OR: [{ email: dto.email }, { phone: dto.phone }] },
+      where: { OR: [{ email: dto.email }, { phone } ] },
     });
     if (existing) {
       throw new ConflictException('An account with this email or phone already exists.');
@@ -39,14 +41,14 @@ export class AuthService {
       data: {
         name: dto.ownerName,
         email: dto.email,
-        phone: dto.phone,
+        phone,
         password: passwordHash,
         organization: {
           create: {
             name: dto.organizationName,
             ownerName: dto.ownerName,
             email: dto.email,
-            phone: dto.phone,
+            phone,
             // Starts NOT_ACTIVE — flipped to ACTIVE once both the
             // email and phone OTPs are verified below.
           },
@@ -264,9 +266,14 @@ export class AuthService {
   private findByIdentifier(identifier: string) {
     // Includes the linked Organization so login() can double-check its
     // status alongside the user's own emailVerifiedAt/phoneVerifiedAt.
+    // Phone lookups are normalized (see phone.util.ts) so "+1 555-629-2767",
+    // "15556292767", etc. all resolve to the same User.phone row — User.phone
+    // itself is stored normalized (see register() above), so this only works
+    // if existing rows have also been backfilled (see the one-off migration
+    // script run against production after this change shipped).
     return EMAIL_PATTERN.test(identifier)
       ? this.prisma.user.findUnique({ where: { email: identifier }, include: { organization: true } })
-      : this.prisma.user.findUnique({ where: { phone: identifier }, include: { organization: true } });
+      : this.prisma.user.findUnique({ where: { phone: normalizePhone(identifier) }, include: { organization: true } });
   }
 
   private issueToken(

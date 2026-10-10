@@ -51,6 +51,8 @@ enum Screen {
   // regardless of this permission (see LeaveController) — same
   // pattern as DASHBOARD being universally readable.
   LEAVES
+  FORMS
+  FITNESS
 }
 
 enum LeaveType {
@@ -176,31 +178,36 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users     User[]
-  branches  Branch[]
-  leads     Lead[]
-  employees Employee[]
-  jobTitles  JobTitle[]
-  payslips   Payslip[]
-  reviews    Review[]
-  appraisals Appraisal[]
-  plans      MembershipPlan[]
-  offers    Offer[]
-  members   Member[]
-  expenses  Expense[]
+  users                  User[]
+  branches               Branch[]
+  leads                  Lead[]
+  employees              Employee[]
+  jobTitles              JobTitle[]
+  payslips               Payslip[]
+  reviews                Review[]
+  appraisals             Appraisal[]
+  plans                  MembershipPlan[]
+  offers                 Offer[]
+  members                Member[]
+  expenses               Expense[]
   leaveAllocationConfigs LeaveAllocationConfig[]
   leaveBalances          LeaveBalance[]
   leaveRequests          LeaveRequest[]
-  biometricDevices      BiometricDevice[]
-  attendancePunches     AttendancePunch[]
-  attendanceDayRecords  AttendanceDayRecord[]
-  holidays              Holiday[]
-  alerts                Alert[]
+  biometricDevices       BiometricDevice[]
+  attendancePunches      AttendancePunch[]
+  attendanceDayRecords   AttendanceDayRecord[]
+  holidays               Holiday[]
+  alerts                 Alert[]
 
-  notifications        Notification[]
-  notificationSetup    NotificationSetup?
-  notificationConfigs  NotificationConfig[]
-  rolePermissions      RolePermission[]
+  notifications       Notification[]
+  notificationSetup   NotificationSetup?
+  notificationConfigs NotificationConfig[]
+  rolePermissions     RolePermission[]
+
+  formTemplates  FormTemplate[]
+  formShareLinks FormShareLink[]
+  dietPlans      DietPlan[]
+  workoutPlans   WorkoutPlan[]
 
   @@map("organizations")
 }
@@ -249,16 +256,16 @@ model Branch {
   // every branch should have a deliberate value, not a silent 0.
   memberCount Int
 
-  leads     Lead[]
-  employees Employee[]
-  staff     User[]
-  plans     MembershipPlan[]
-  members   Member[]
-  expenses  Expense[]
-  leaveRequests          LeaveRequest[]
-  alertsTargeted         Alert[]           @relation("AlertAudienceBranch")
-  biometricDevices       BiometricDevice[]
-  attendancePunches      AttendancePunch[]
+  leads             Lead[]
+  employees         Employee[]
+  staff             User[]
+  plans             MembershipPlan[]
+  members           Member[]
+  expenses          Expense[]
+  leaveRequests     LeaveRequest[]
+  alertsTargeted    Alert[]           @relation("AlertAudienceBranch")
+  biometricDevices  BiometricDevice[]
+  attendancePunches AttendancePunch[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -294,13 +301,13 @@ model MembershipPlan {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  members Member[]
+
   // A branch can't have two plans with the same name — same
   // case-insensitive pre-check pattern as Branch.location (see
   // PlansService.assertUniqueName).
   @@unique([branchId, name], name: "plans_branch_name_unique")
   @@map("membership_plans")
-
-  members Member[]
 }
 
 // Independent, org-wide discount/promo catalog — like a coupon: not tied
@@ -331,9 +338,9 @@ model Offer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("offers")
-
   members Member[]
+
+  @@map("offers")
 }
 
 // Member Management (spec section 4) first pass: core record + plan/offer
@@ -432,9 +439,17 @@ model Member {
   heightCm     Decimal?  @db.Decimal(5, 2)
   goalWeightKg Decimal?  @db.Decimal(5, 2)
 
-  metricEntries MemberMetricEntry[]
+  metricEntries        MemberMetricEntry[]
   biometricEnrollments BiometricEnrollment[]
   attendancePunches    AttendancePunch[]
+
+  formShareLinks FormShareLink[]
+  dietPlans      DietPlan[]
+  workoutPlans   WorkoutPlan[]
+  // Single persistent (not single-use) token for this member's public
+  // "my plans" page — distinct from FormShareLink's single-use tokens,
+  // since the diet/workout page is meant to be bookmarked and revisited.
+  publicAccess   MemberPublicAccess?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -516,10 +531,10 @@ model Lead {
   createdByUserId String?
   createdByUser   User?   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  status     LeadStatus @default(NEW)
+  status          LeadStatus @default(NEW)
   // Only meaningful when status is LOST — the service enforces this is
   // present when a lead is marked lost, and logs it as a timeline entry.
-  lostReason String?
+  lostReason      String?
   // Only meaningful when status is CONVERTED — the "Conclude" checkbox's
   // comment for the converted outcome (lostReason plays the same role
   // for the LOST outcome). Service enforces this is present when a lead
@@ -579,9 +594,9 @@ model Employee {
   branchId String
   branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  name  String
-  email String?
-  phone String
+  name     String
+  email    String?
+  phone    String
   photoUrl String?
 
   // Free-form job title, matched against this org's JobTitle list (see
@@ -591,7 +606,7 @@ model Employee {
   // off this string: the three seeded names map to their matching
   // permission role, anything else (including custom titles and Other)
   // falls back to the generic STAFF role.
-  role   String @default("OTHER")
+  role   String           @default("OTHER")
   status EmploymentStatus @default(ACTIVE)
 
   joinDate    DateTime
@@ -619,8 +634,8 @@ model Employee {
   // Members this employee is the assigned trainer for.
   assignedMembers Member[]
 
-  leaveBalances LeaveBalance[]
-  leaveRequests LeaveRequest[]
+  leaveBalances        LeaveBalance[]
+  leaveRequests        LeaveRequest[]
   biometricEnrollments BiometricEnrollment[]
   attendancePunches    AttendancePunch[]
   attendanceDayRecords AttendanceDayRecord[]
@@ -633,6 +648,10 @@ model Employee {
   payslips         Payslip[]
   reviews          Review[]
   appraisals       Appraisal[]
+
+  dietPlansAsTrainer    DietPlan[]
+  workoutPlansAsTrainer WorkoutPlan[]
+  workoutSetsLogged     WorkoutSet[]
 
   @@index([organizationId, branchId])
   @@map("employees")
@@ -657,7 +676,7 @@ model SalaryComponent {
 
   name    String
   type    SalaryComponentType
-  percent Decimal @db.Decimal(5, 2)
+  percent Decimal             @db.Decimal(5, 2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -688,7 +707,7 @@ model Payslip {
   year  Int
   month Int // 1-12
 
-  basicPay Decimal @db.Decimal(12, 2)
+  basicPay           Decimal @db.Decimal(12, 2)
   // Snapshot of the SalaryComponent rows used, each with the computed
   // amount at generation time: [{ name, type, percent, amount }, ...].
   componentsSnapshot Json
@@ -739,8 +758,8 @@ model Review {
   rating         Int? // 1-5, optional — some reviews are notes-only
   notes          String
 
-  status       ReviewStatus @default(PENDING_EMPLOYEE)
-  signedOffAt  DateTime?
+  status      ReviewStatus @default(PENDING_EMPLOYEE)
+  signedOffAt DateTime?
 
   responses ReviewResponse[]
 
@@ -758,7 +777,7 @@ model ReviewResponse {
   reviewId String
   review   Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
 
-  authorType ReviewResponseAuthor
+  authorType   ReviewResponseAuthor
   authorUserId String?
   message      String
 
@@ -833,7 +852,7 @@ model JobTitle {
 }
 
 model User {
-  id             String    @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -860,7 +879,7 @@ model User {
   // Links a staff login back to the Employee record it was created
   // from — null for the owner (who has no Employee record). Unique
   // since a login is 1:1 with the employee it belongs to.
-  employeeId String?  @unique
+  employeeId String?   @unique
   employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   emailVerifiedAt DateTime?
@@ -871,7 +890,7 @@ model User {
 
   otpCodes OtpCode[]
 
-  approvedLeaveRequests LeaveRequest[] @relation("LeaveApprover")
+  approvedLeaveRequests LeaveRequest[]   @relation("LeaveApprover")
   alertDismissals       AlertDismissal[]
   alertsTargetedToMe    Alert[]          @relation("AlertAudienceUser")
 
@@ -911,9 +930,9 @@ model RolePermission {
 }
 
 model OtpCode {
-  id      String     @id @default(cuid())
-  userId  String
-  user    User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   purpose OtpPurpose
   channel OtpChannel
@@ -1015,8 +1034,8 @@ model NotificationConfig {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  type    NotificationType
-  enabled Boolean              @default(true)
+  type     NotificationType
+  enabled  Boolean              @default(true)
   severity NotificationSeverity @default(INFO)
 
   inAppEnabled    Boolean @default(true)
@@ -1049,7 +1068,7 @@ model Expense {
   branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   category ExpenseCategory
-  amount   Decimal @db.Decimal(10, 2)
+  amount   Decimal         @db.Decimal(10, 2)
 
   // When the expense was actually incurred (not when it was logged in
   // the system — those can differ, e.g. entering last week's electricity
@@ -1141,7 +1160,7 @@ model LeaveRequest {
   // The Branch Manager (or Owner, if the applicant is a Branch
   // Manager) who approved/rejected this request. Null while PENDING.
   approverUserId String?
-  approverUser   User?   @relation("LeaveApprover", fields: [approverUserId], references: [id], onDelete: SetNull)
+  approverUser   User?     @relation("LeaveApprover", fields: [approverUserId], references: [id], onDelete: SetNull)
   decisionNote   String?
   decidedAt      DateTime?
 
@@ -1260,9 +1279,9 @@ model BiometricEnrollment {
 
   personType PunchPersonType
   employeeId String?
-  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employee   Employee?       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   memberId   String?
-  member     Member?   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member     Member?         @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
@@ -1271,7 +1290,7 @@ model BiometricEnrollment {
 }
 
 model AttendancePunch {
-  id             String @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -1308,7 +1327,7 @@ model AttendancePunch {
 }
 
 model AttendanceDayRecord {
-  id             String @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -1342,7 +1361,6 @@ model Holiday {
   @@unique([organizationId, date])
   @@map("holidays")
 }
-
 
 // ---- Login alerts ----
 // Owner-configured notices shown right after login. A valid window
@@ -1401,4 +1419,285 @@ model AlertDismissal {
 
   @@unique([alertId, userId])
   @@map("alert_dismissals")
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Dynamic form builder — custom review/feedback forms an owner builds
+// from the admin panel, shared with members via a single-use link
+// (WhatsApp + QR) and filled out on a public, unauthenticated page.
+// See src/forms/ — discussed and scoped before implementation, not an
+// ad-hoc addition.
+// ──────────────────────────────────────────────────────────────────
+
+enum FormFieldType {
+  SHORT_TEXT
+  LONG_TEXT
+  RATING // 1-5
+  SINGLE_CHOICE
+  MULTI_CHOICE
+  YES_NO
+  NUMBER
+  DATE
+}
+
+// The reusable "shape" of a form — an owner creates one of these once
+// (e.g. "Trainer feedback") and generates many FormShareLinks from it
+// over time, or creates a fresh one per use. Never deleted when a
+// share link still references it (Restrict) so historical submissions
+// always have field definitions to render against.
+model FormTemplate {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+
+  fields     FormField[]
+  shareLinks FormShareLink[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@map("form_templates")
+}
+
+model FormField {
+  id             String       @id @default(cuid())
+  formTemplateId String
+  formTemplate   FormTemplate @relation(fields: [formTemplateId], references: [id], onDelete: Cascade)
+
+  label    String
+  type     FormFieldType
+  required Boolean       @default(false)
+  // Only meaningful for SINGLE_CHOICE/MULTI_CHOICE — the selectable
+  // option labels, in display order.
+  options  String[]
+  order    Int           @default(0)
+
+  answers FormAnswer[]
+
+  @@index([formTemplateId])
+  @@map("form_fields")
+}
+
+// One row per generated, single-use public link. Always tied to a
+// member (no anonymous/reusable links — see the product discussion:
+// every send generates a fresh link) so "one submission per member"
+// is enforced here, not inferred elsewhere. usedAt is set the moment
+// a submission is recorded, after which the link is dead — re-fetching
+// the public page with a used token shows "already submitted" instead
+// of the form.
+model FormShareLink {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  formTemplateId String
+  formTemplate   FormTemplate @relation(fields: [formTemplateId], references: [id], onDelete: Restrict)
+
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  // Long, unguessable, unrelated to the member's real id — this is
+  // the entire access control for the public page (see the product
+  // discussion: token-only, no phone/OTP check).
+  token String @unique
+
+  usedAt DateTime?
+
+  submission FormSubmission?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([memberId])
+  @@map("form_share_links")
+}
+
+model FormSubmission {
+  id              String        @id @default(cuid())
+  formShareLinkId String        @unique
+  formShareLink   FormShareLink @relation(fields: [formShareLinkId], references: [id], onDelete: Cascade)
+
+  answers FormAnswer[]
+
+  submittedAt DateTime @default(now())
+
+  @@map("form_submissions")
+}
+
+model FormAnswer {
+  id               String         @id @default(cuid())
+  formSubmissionId String
+  formSubmission   FormSubmission @relation(fields: [formSubmissionId], references: [id], onDelete: Cascade)
+
+  formFieldId String
+  formField   FormField @relation(fields: [formFieldId], references: [id], onDelete: Cascade)
+
+  // Exactly one of these is populated, depending on FormField.type —
+  // kept as separate typed columns (rather than one JSON blob) so
+  // RATING/NUMBER averages can be computed with a plain SQL aggregate
+  // instead of parsing JSON for every submission.
+  textValue    String?
+  numberValue  Decimal? @db.Decimal(10, 2)
+  booleanValue Boolean?
+  choiceValues String[]
+
+  @@index([formSubmissionId])
+  @@index([formFieldId])
+  @@map("form_answers")
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Diet & workout plans — trainer-authored inside the authenticated
+// app, viewed (and for workouts, partly logged) by the member through
+// a single persistent token-only public page. See src/fitness/.
+// ──────────────────────────────────────────────────────────────────
+
+model DietPlan {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  // Snapshot of who authored it — SetNull (not Cascade) so deleting
+  // the employee record later doesn't delete the plan, same pattern
+  // as Member.assignedTrainerEmployee.
+  trainerEmployeeId String?
+  trainerEmployee   Employee? @relation(fields: [trainerEmployeeId], references: [id], onDelete: SetNull)
+
+  title String
+  notes String?
+
+  items DietPlanItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([memberId])
+  @@map("diet_plans")
+}
+
+model DietPlanItem {
+  id         String   @id @default(cuid())
+  dietPlanId String
+  dietPlan   DietPlan @relation(fields: [dietPlanId], references: [id], onDelete: Cascade)
+
+  // Free-text meal slot label (Breakfast, Lunch, Snack, ...) rather
+  // than a fixed enum — gyms vary a lot in how they structure diets.
+  mealLabel   String
+  description String
+  order       Int    @default(0)
+
+  @@index([dietPlanId])
+  @@map("diet_plan_items")
+}
+
+model WorkoutPlan {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  trainerEmployeeId String?
+  trainerEmployee   Employee? @relation(fields: [trainerEmployeeId], references: [id], onDelete: SetNull)
+
+  title String
+  notes String?
+
+  exercises WorkoutPlanExercise[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([memberId])
+  @@map("workout_plans")
+}
+
+model WorkoutPlanExercise {
+  id            String      @id @default(cuid())
+  workoutPlanId String
+  workoutPlan   WorkoutPlan @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
+
+  name           String
+  // Optional tag used only to drive the trainer-facing exercise
+  // picker's muscle-group body-diagram highlight (see
+  // MUSCLE_GROUPS/exercise-catalog.ts on the frontend) — purely
+  // presentational, never read by any backend logic. Null for
+  // exercises added before this field existed, or freely typed
+  // instead of picked from the catalog.
+  muscleGroup    String?
+  // Optional day-of-split tag (1-7) for trainers who want to spread a
+  // plan across up to 7 named days (Day 1, Day 2, ...) — null means
+  // the exercise isn't assigned to a specific day and shows in the
+  // plan's flat/unsorted section. Purely a grouping label; doesn't
+  // affect scheduling or any backend logic.
+  day            Int?
+  targetSets     Int
+  targetReps     Int
+  targetWeightKg Decimal? @db.Decimal(6, 2)
+  order          Int      @default(0)
+
+  sets WorkoutSet[]
+
+  @@index([workoutPlanId])
+  @@map("workout_plan_exercises")
+}
+
+enum WorkoutSetLoggedBy {
+  TRAINER
+  MEMBER
+}
+
+// Actual performed sets — the progressive-overload history. Both
+// sides write here: a trainer from the authenticated app, a member
+// self-reporting from their public token-only page. Deliberately
+// append-only from the member's side (no update/delete endpoint for
+// MEMBER-logged rows — see FitnessService) so a member can't quietly
+// rewrite their own history; loggedBy + loggedByEmployeeId keep
+// trainer-observed and self-reported entries visibly distinct rather
+// than one silently overwriting the other.
+model WorkoutSet {
+  id                    String              @id @default(cuid())
+  workoutPlanExerciseId String
+  workoutPlanExercise   WorkoutPlanExercise @relation(fields: [workoutPlanExerciseId], references: [id], onDelete: Cascade)
+
+  performedAt DateTime @default(now())
+  setNumber   Int
+  reps        Int
+  weightKg    Decimal  @db.Decimal(6, 2)
+
+  loggedBy           WorkoutSetLoggedBy
+  // Set only when loggedBy = TRAINER.
+  loggedByEmployeeId String?
+  loggedByEmployee   Employee?          @relation(fields: [loggedByEmployeeId], references: [id], onDelete: SetNull)
+
+  @@index([workoutPlanExerciseId])
+  @@index([workoutPlanExerciseId, performedAt])
+  @@map("workout_sets")
+}
+
+// One persistent (not single-use) token per member, unlocking their
+// public "my plans" page (diet + workout tabs). Separate from
+// FormShareLink's single-use tokens — this one is meant to be
+// bookmarked/revisited, generated once lazily the first time a
+// trainer shares it (see FitnessService.getOrCreatePublicAccess).
+model MemberPublicAccess {
+  id       String @id @default(cuid())
+  memberId String @unique
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  token String @unique
+
+  createdAt DateTime @default(now())
+
+  @@map("member_public_access")
 }
