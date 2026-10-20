@@ -46,6 +46,16 @@ export class WhatsappService {
   private readonly accessToken: string | undefined;
   private readonly phoneNumberId: string | undefined;
   private readonly apiVersion: string;
+  /** Default language code for every template send — must exactly
+   * match the language each template was actually approved under in
+   * Meta Business Manager (WhatsApp Manager > Message templates >
+   * Language column), not just a generic "en_US" guess. A mismatch
+   * fails with Meta error 132001 "Template name does not exist in the
+   * translation" even though the template exists, just under a
+   * different language code. Our templates were approved as plain
+   * "en", not "en_US" — override via WHATSAPP_TEMPLATE_LANGUAGE if a
+   * future template is approved under a different one. */
+  private readonly defaultLanguage: string;
 
   /** Meta's pre-approved, parameter-free template available on every
    * WhatsApp Business account with zero setup — used as a stand-in
@@ -56,6 +66,7 @@ export class WhatsappService {
     this.accessToken = this.config.get<string>('WHATSAPP_ACCESS_TOKEN')?.trim() || undefined;
     this.phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID')?.trim() || undefined;
     this.apiVersion = this.config.get<string>('WHATSAPP_API_VERSION')?.trim() || 'v21.0';
+    this.defaultLanguage = this.config.get<string>('WHATSAPP_TEMPLATE_LANGUAGE')?.trim() || 'en';
 
     if (!this.accessToken || !this.phoneNumberId) {
       this.logger.warn(
@@ -121,7 +132,7 @@ export class WhatsappService {
             type: 'template',
             template: {
               name: options.template,
-              language: { code: options.language ?? 'en_US' },
+              language: { code: options.language ?? this.defaultLanguage },
               ...(components.length ? { components } : {}),
             },
           }),
@@ -158,40 +169,63 @@ export class WhatsappService {
   async sendOtp(phone: string, code: string): Promise<void> {
     const template = this.config.get<string>('WHATSAPP_TEMPLATE_OTP') ?? 'otp_code';
     if (template === WhatsappService.DEFAULT_TEST_TEMPLATE) {
-      await this.sendTemplate({ to: phone, template });
+      // hello_world has no {{1}} placeholder, so it can't actually
+      // carry the OTP code — this is a connectivity/wiring test only
+      // until a real, approved "otp_code" Authentication template is
+      // in place (see this method's class-level doc comment). It now
+      // goes to the real logging-in user's own phone like every other
+      // WhatsApp send, rather than a hardcoded test number.
+      //
+      // hello_world is Meta's own built-in template and is approved
+      // under "English (US)" (en_US) specifically, unlike our other
+      // templates (plain "English"/en, see defaultLanguage) — must be
+      // overridden here or this send 404s with error 132001 same as
+      // the leave_decision mismatch did.
+      await this.sendTemplate({ to: phone, template, language: 'en_US' });
       return;
     }
     await this.sendTemplate({ to: phone, template, params: [code], buttonCode: code });
   }
 
   /** Leave request decided — requires an approved template (default
-   * name "leave_decision") with placeholders in this order:
-   * {{1}} employee name, {{2}} leave type, {{3}} APPROVED/REJECTED,
-   * {{4}} decision note (or "-" if none). */
+   * name "leave_decision") whose body is "Your {{1}} leave request
+   * has been {{2}} by admin." — {{1}} leave type, {{2}}
+   * APPROVED/REJECTED. Trimmed down from an earlier 4-placeholder
+   * draft (employee name + decision note included) that Meta
+   * rejected as too many variables for the message length; the
+   * employee name isn't needed since this goes straight to that
+   * employee's own phone, but the decision NOTE is no longer
+   * conveyed over WhatsApp at all now — it's still visible in-app,
+   * just not in this message. employeeName/note stay as parameters
+   * here so callers don't need to change, they're just unused now. */
   async sendLeaveDecision(
     phone: string,
-    employeeName: string,
+    _employeeName: string,
     leaveTypeLabel: string,
     approved: boolean,
-    note?: string,
+    _note?: string,
   ): Promise<void> {
     const template = this.config.get<string>('WHATSAPP_TEMPLATE_LEAVE_DECISION') ?? 'leave_decision';
     await this.sendTemplate({
       to: phone,
       template,
-      params: [employeeName, leaveTypeLabel, approved ? 'Approved' : 'Rejected', note?.trim() || '-'],
+      params: [leaveTypeLabel, approved ? 'Approved' : 'Rejected'],
     });
   }
 
   /** New payslip generated — requires an approved template (default
-   * name "payslip_ready") with placeholders {{1}} employee name,
-   * {{2}} month/year label (e.g. "September 2026"). The message tells
-   * the employee to open the app to download it — this app never
-   * sends the PDF itself over WhatsApp (see the payroll module's PDF
-   * download endpoints), only the notification. */
-  async sendPayslipReady(phone: string, employeeName: string, periodLabel: string): Promise<void> {
+   * name "payslip_ready") whose body is "Your payslip for {{1}} month
+   * is ready. Open the app to download it." — {{1}} month/year label
+   * (e.g. "September 2026"). Trimmed down from an earlier
+   * 2-placeholder draft (employee name included) that Meta rejected;
+   * the employee name isn't needed since this goes straight to that
+   * employee's own phone. employeeName stays as a parameter here so
+   * callers don't need to change, it's just unused now. This app
+   * never sends the PDF itself over WhatsApp (see the payroll
+   * module's PDF download endpoints), only the notification. */
+  async sendPayslipReady(phone: string, _employeeName: string, periodLabel: string): Promise<void> {
     const template = this.config.get<string>('WHATSAPP_TEMPLATE_PAYSLIP_READY') ?? 'payslip_ready';
-    await this.sendTemplate({ to: phone, template, params: [employeeName, periodLabel] });
+    await this.sendTemplate({ to: phone, template, params: [periodLabel] });
   }
 
   /** Generic notification delivery — one shared template for every
@@ -201,23 +235,37 @@ export class WhatsappService {
    * Deliberately generic rather than a template per notification type:
    * each approved template is a manual step in Meta Business Manager,
    * and this app's notification types will keep growing, so one
-   * {{1}}=title/{{2}}=message template avoids that becoming a
-   * per-feature chore. Requires an approved template (default name
-   * "general_notification") with those two placeholders in order. */
-  async sendNotification(phone: string, title: string, message: string): Promise<void> {
+   * shared template avoids that becoming a per-feature chore.
+   *
+   * Requires an approved template (default name "general_notification")
+   * whose body is "FitNexus update: {{1}} Please check the app for
+   * more details." — a single {{1}} = message. Trimmed down from an
+   * earlier 2-placeholder draft (title + message) that Meta rejected;
+   * `message` already carries everything the title would have added
+   * (e.g. "John was assigned to Mike."), so the title is dropped
+   * entirely rather than just unused — it's not passed to
+   * sendTemplate at all. `title` stays as a parameter here so callers
+   * don't need to change, it's just unused now. */
+  async sendNotification(phone: string, _title: string, message: string): Promise<void> {
     const template = this.config.get<string>('WHATSAPP_TEMPLATE_GENERIC') ?? 'general_notification';
-    await this.sendTemplate({ to: phone, template, params: [title, message] });
+    await this.sendTemplate({ to: phone, template, params: [message] });
   }
 
   /** A public form link (review/feedback form) just generated for a
    * member — requires an approved template (default name
-   * "form_link_share") with placeholders {{1}} member name, {{2}} form
-   * name, {{3}} the public URL. Same approval dependency as every
-   * other template here — see WHATSAPP_TEMPLATE_OTP's doc comment for
-   * the interim-testing note; this one has no hello_world equivalent
-   * since every template needs its own approval regardless. */
-  async sendFormLink(phone: string, memberName: string, formName: string, url: string): Promise<void> {
+   * "form_link_share") whose body is "A new form "{{1}}" has been
+   * shared with you. Open this link to respond: {{2}}. Thank you." —
+   * {{1}} form name, {{2}} the public URL. Trimmed down from an
+   * earlier 3-placeholder draft (member name included) that Meta
+   * rejected; the member name isn't needed since this goes straight
+   * to that member's own phone. memberName stays as a parameter here
+   * so callers don't need to change, it's just unused now. Same
+   * approval dependency as every other template here — see
+   * WHATSAPP_TEMPLATE_OTP's doc comment for the interim-testing note;
+   * this one has no hello_world equivalent since every template
+   * needs its own approval regardless. */
+  async sendFormLink(phone: string, _memberName: string, formName: string, url: string): Promise<void> {
     const template = this.config.get<string>('WHATSAPP_TEMPLATE_FORM_LINK') ?? 'form_link_share';
-    await this.sendTemplate({ to: phone, template, params: [memberName, formName, url] });
+    await this.sendTemplate({ to: phone, template, params: [formName, url] });
   }
 }
