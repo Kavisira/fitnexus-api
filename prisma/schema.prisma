@@ -885,6 +885,15 @@ model User {
   emailVerifiedAt DateTime?
   phoneVerifiedAt DateTime?
 
+  // Set to a fresh random value every successful login (see
+  // AuthService.issueToken) and embedded in that login's JWT as the
+  // `sid` claim. JwtStrategy compares the two on every authenticated
+  // request — a mismatch means a newer login has happened elsewhere
+  // since this token was issued, so the request is rejected (enforces
+  // "one device per login at a time"). Null means this login has never
+  // been used (or was explicitly logged out — see AuthService.logout).
+  currentSessionId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

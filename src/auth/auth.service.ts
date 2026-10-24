@@ -1,4 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { OtpChannel, OtpPurpose, UserRole } from '@prisma/client';
@@ -12,6 +14,7 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyResetOtpDto } from './dto/verify-reset-otp.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { encryptSecret } from '../employees/credentials-crypto.util';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SALT_ROUNDS = 10;
@@ -22,7 +25,20 @@ export class AuthService {
     private prisma: PrismaService,
     private otp: OtpService,
     private jwt: JwtService,
+    private config: ConfigService,
   ) {}
+
+  /** Same key the owner's "view staff credentials" screen decrypts
+   * with (EmployeesService.encryptionSecret) — duplicated here rather
+   * than injecting EmployeesService to avoid a cross-module dependency
+   * for one string. Keep both in sync if this fallback chain changes. */
+  private encryptionSecret(): string {
+    return (
+      this.config.get<string>('CREDENTIALS_ENC_SECRET') ??
+      this.config.get<string>('JWT_SECRET') ??
+      'change-me-in-production'
+    );
+  }
 
   /** Step 1 of registration: create the org + a not-yet-verified user,
    * then send an OTP to both email and phone. */
@@ -95,7 +111,7 @@ export class AuthService {
       }),
     ]);
 
-    return this.issueToken(user.id, user.email, user.organizationId, user.role, user.branchId, user.employeeId);
+    return await this.issueToken(user.id, user.email, user.organizationId, user.role, user.branchId, user.employeeId);
   }
 
   /** Re-sends both OTPs for a pending (not-yet-verified) registration.
@@ -150,7 +166,7 @@ export class AuthService {
     // "Remember me" unchecked → session expires in 30 minutes.
     // "Remember me" checked → session expires in 30 days.
     const expiresIn = dto.rememberMe ? '30d' : '30m';
-    return this.issueToken(user.id, user.email, user.organizationId, user.role, user.branchId, user.employeeId, expiresIn);
+    return await this.issueToken(user.id, user.email, user.organizationId, user.role, user.branchId, user.employeeId, expiresIn);
   }
 
   /** Step 1 of forgot-password: look up by email or phone, send one OTP
@@ -228,7 +244,18 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.newPassword, SALT_ROUNDS);
-    await this.prisma.user.update({ where: { id: user.id }, data: { password: passwordHash } });
+    // Also refresh the reversible copy (passwordEnc) that the owner's
+    // "view staff login credentials" screen decrypts — otherwise a
+    // self-service reset silently desyncs it from the real (bcrypt)
+    // password forever, and that screen keeps showing the old one.
+    // Only staff logins (created via EmployeesService.createLogin) have
+    // passwordEnc set at all; an owner's own account never does, so
+    // this is skipped for owners rather than writing a bogus value.
+    const passwordEnc = user.passwordEnc ? encryptSecret(dto.newPassword, this.encryptionSecret()) : undefined;
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { password: passwordHash, ...(passwordEnc ? { passwordEnc } : {}) },
+    });
 
     return { message: 'Password updated.' };
   }
@@ -266,17 +293,45 @@ export class AuthService {
   private findByIdentifier(identifier: string) {
     // Includes the linked Organization so login() can double-check its
     // status alongside the user's own emailVerifiedAt/phoneVerifiedAt.
-    // Phone lookups are normalized (see phone.util.ts) so "+1 555-629-2767",
-    // "15556292767", etc. all resolve to the same User.phone row — User.phone
-    // itself is stored normalized (see register() above), so this only works
-    // if existing rows have also been backfilled (see the one-off migration
-    // script run against production after this change shipped).
-    return EMAIL_PATTERN.test(identifier)
-      ? this.prisma.user.findUnique({ where: { email: identifier }, include: { organization: true } })
-      : this.prisma.user.findUnique({ where: { phone: normalizePhone(identifier) }, include: { organization: true } });
+    if (EMAIL_PATTERN.test(identifier)) {
+      return this.prisma.user.findUnique({ where: { email: identifier }, include: { organization: true } });
+    }
+
+    // Phone lookups try every plausible stored form of the same real
+    // number, not just normalizePhone()'s plain "strip non-digits"
+    // output. A staff login's User.phone is the auto-generated
+    // password (see EmployeesService.createLogin), which is the
+    // *Employee* record's phone digits verbatim — with or without a
+    // leading country code depending on how that was originally typed
+    // in — so a bare 10-digit identifier here must also match a
+    // 91-prefixed stored value, and vice versa. Without this, login
+    // and forgot-password/reset silently operate on "no such user"
+    // (this method returns null, and the account-enumeration-safe
+    // callers like forgotPassword report success either way) whenever
+    // the typed form doesn't byte-for-byte match what happened to get
+    // stored, which looks exactly like "reset succeeded but the new
+    // password doesn't work" from the outside.
+    const bareDigits = normalizePhone(identifier);
+    const candidates = new Set<string>([bareDigits]);
+    if (bareDigits.length === 10) {
+      candidates.add(`91${bareDigits}`);
+    } else if (bareDigits.length === 12 && bareDigits.startsWith('91')) {
+      candidates.add(bareDigits.slice(2));
+    }
+
+    return this.prisma.user.findFirst({
+      where: { phone: { in: Array.from(candidates) } },
+      include: { organization: true },
+    });
   }
 
-  private issueToken(
+  /** Mints a fresh JWT and, in the same call, a fresh `sid` for this
+   * login — persisted as the user's `currentSessionId` and embedded in
+   * the token. JwtStrategy checks the two match on every subsequent
+   * request, so issuing a new one here immediately invalidates
+   * whatever token this user had out on any other device (enforces
+   * "one device per login at a time"). */
+  private async issueToken(
     userId: string,
     email: string,
     organizationId: string,
@@ -285,10 +340,27 @@ export class AuthService {
     employeeId: string | null,
     expiresIn = '30m',
   ) {
+    const sessionId = randomUUID();
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { currentSessionId: sessionId },
+    });
     const accessToken = this.jwt.sign(
-      { sub: userId, email, organizationId, role, branchId, employeeId },
+      { sub: userId, email, organizationId, role, branchId, employeeId, sid: sessionId },
       { expiresIn },
     );
     return { accessToken };
+  }
+
+  /** Clears this user's `currentSessionId` so their just-logged-out
+   * token can't be used again even before it naturally expires (and so
+   * it doesn't look like a "replaced elsewhere" kickout if they log
+   * back in from the same device). Called from the frontend's own
+   * logout action — see AuthController.logout. */
+  async logout(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { currentSessionId: null },
+    });
   }
 }

@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { UserRole } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
 
 interface JwtPayload {
   sub: string;
@@ -11,11 +12,18 @@ interface JwtPayload {
   role?: UserRole;
   branchId?: string | null;
   employeeId?: string | null;
+  // The session id this token was issued with (see
+  // AuthService.issueToken) — absent on any token minted before this
+  // field existed, which validate() treats as a mismatch (see below).
+  sid?: string;
 }
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private prisma: PrismaService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -23,7 +31,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: JwtPayload) {
+  async validate(payload: JwtPayload) {
     // Reject tokens minted before organizationId was added to the JWT
     // payload (or any otherwise malformed token) instead of letting
     // `request.user.organizationId` silently come back undefined —
@@ -34,6 +42,28 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // expired" toast instead.
     if (!payload.organizationId) {
       throw new UnauthorizedException('Session is invalid — please log in again.');
+    }
+
+    // One device per login at a time: every successful login mints a
+    // fresh session id and saves it as the user's currentSessionId
+    // (see AuthService.issueToken). If this token's own `sid` doesn't
+    // match what's on the user's row right now, a newer login has
+    // happened elsewhere since this token was issued — reject it with
+    // a distinguishable code so the frontend can show "logged in
+    // elsewhere" instead of a generic "session expired" message (see
+    // auth.interceptor.ts). A token with no `sid` at all (minted
+    // before this feature shipped) is always treated as a mismatch —
+    // those get rejected the same way, a one-time re-login is expected
+    // right after this ships.
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { currentSessionId: true },
+    });
+    if (!user || !payload.sid || user.currentSessionId !== payload.sid) {
+      throw new UnauthorizedException({
+        message: 'This account was signed in on another device.',
+        code: 'SESSION_REPLACED',
+      });
     }
 
     // Whatever this returns becomes `request.user` in guarded routes —

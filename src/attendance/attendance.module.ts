@@ -12,5 +12,6 @@ import { AttendanceAggregationCronService } from './attendance-aggregation.cron'
   imports: [AuthModule, RolesModule],
   controllers: [AttendanceController, AttendanceIngestController],
   providers: [AttendanceService, AttendanceDevicesService, AttendanceIngestService, AttendanceAggregationCronService],
+  exports: [AttendanceService],
 })
 export class AttendanceModule {}

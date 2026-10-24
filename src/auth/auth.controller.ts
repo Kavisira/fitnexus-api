@@ -65,4 +65,14 @@ export class AuthController {
   me(@CurrentUser() user: AuthenticatedUser) {
     return this.authService.getMe(user.userId);
   }
+
+  // Clears this login's currentSessionId so the token being discarded
+  // right now can't be reused later and isn't mistaken for a "signed
+  // in elsewhere" kickout if this same device logs back in (see
+  // AuthService.logout / JwtStrategy.validate).
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  logout(@CurrentUser() user: AuthenticatedUser) {
+    return this.authService.logout(user.userId);
+  }
 }

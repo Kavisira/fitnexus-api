@@ -24,12 +24,12 @@ const BRANCH_SELECT = { id: true, location: true };
 const SALT_ROUNDS = 10;
 
 // Every employee is login-eligible now, whatever their job title —
-// the three names below (matched case-insensitively) map to the
-// permission role the Role Permissions matrix actually governs;
-// anything else (a custom title, or "Other") falls back to the
-// generic STAFF role, which still gets a real login but no entry in
-// that matrix (so it starts with the least access, same idea as an
-// unconfigured role).
+// the three names below (matched case-insensitively) map to a named
+// role in the Role Permissions matrix; anything else (a custom title,
+// or "Other") falls back to the generic STAFF role, which is also a
+// row in that matrix (seeded true/true by default, like every other
+// role) so these employees can be granted access on every screen
+// instead of being stuck with whatever a hardcoded default would be.
 const NAMED_LOGIN_ROLE: Record<string, UserRole> = {
   MANAGER: UserRole.BRANCH_MANAGER,
   TRAINER: UserRole.TRAINER,

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
+import { AttendanceService } from '../attendance/attendance.service';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -13,7 +14,10 @@ const ANALYTICS_ROLES: UserRole[] = [UserRole.OWNER, UserRole.BRANCH_MANAGER];
 
 @Injectable()
 export class DashboardService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private attendance: AttendanceService,
+  ) {}
 
   async getSummary(user: AuthenticatedUser, branchId: string | null) {
     if (ANALYTICS_ROLES.includes(user.role)) {
@@ -29,7 +33,7 @@ export class DashboardService {
     const months = this.lastNMonths(now, 6);
     const branchWhere = branchId ? { branchId } : {};
 
-    const [members, expenses, leads, organization, branchCount, employeeCount, activeEmployeeCount] = await Promise.all([
+    const [members, expenses, leads, organization, branchCount, employeeCount, activeEmployeeCount, todaySnapshot] = await Promise.all([
       this.prisma.member.findMany({
         where: { organizationId, ...branchWhere },
         select: { status: true, branchId: true, startDate: true, endDate: true, price: true, plan: { select: { name: true } } },
@@ -46,6 +50,11 @@ export class DashboardService {
       this.prisma.branch.count({ where: { organizationId, status: 'ACTIVE' } }),
       this.prisma.employee.count({ where: { organizationId, ...branchWhere } }),
       this.prisma.employee.count({ where: { organizationId, ...branchWhere, status: 'ACTIVE' } }),
+      // Live "right now, today" snapshot — employee present/absent and
+      // member gym check-ins, same data the Trainer/Front Desk ops
+      // view already surfaces (AttendanceService.todaySnapshot), now
+      // also on the Owner/Manager dashboard's Today strip.
+      this.attendance.todaySnapshot(organizationId, branchId ?? undefined),
     ]);
 
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -107,6 +116,16 @@ export class DashboardService {
 
     return {
       view: 'ANALYTICS' as const,
+      today: {
+        totalActiveEmployees: todaySnapshot.totalActiveEmployees,
+        present: todaySnapshot.present,
+        absent: todaySnapshot.absent,
+        halfDay: todaySnapshot.halfDay,
+        onLeave: todaySnapshot.onLeave,
+        holiday: todaySnapshot.holiday,
+        notYetAggregated: todaySnapshot.notYetAggregated,
+        distinctMembersCheckedIn: todaySnapshot.distinctMembersSwipedInToday,
+      },
       organization: {
         name: organization?.name ?? '',
         totalBranches: branchCount,

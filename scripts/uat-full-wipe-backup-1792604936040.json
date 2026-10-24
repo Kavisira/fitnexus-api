@@ -1,0 +1,1115 @@
+{
+  "organization": [
+    {
+      "id": "cmtiy0a7n00014ncmr8s7sll9",
+      "name": "Siva enterprises",
+      "ownerName": "Siva",
+      "email": "eeknath20@gmail.com",
+      "phone": "8754596379",
+      "logoUrl": null,
+      "status": "NOT_ACTIVE",
+      "createdAt": "2026-09-01T17:30:09.203Z",
+      "updatedAt": "2026-09-01T17:30:09.203Z"
+    },
+    {
+      "id": "cmtiyegmy000v4ncmgozc6g3x",
+      "name": "Eknath integrated ",
+      "ownerName": "Siva",
+      "email": "test9090@gmail.com",
+      "phone": "8056112471",
+      "logoUrl": null,
+      "status": "NOT_ACTIVE",
+      "createdAt": "2026-09-01T17:41:10.715Z",
+      "updatedAt": "2026-09-01T17:41:10.715Z"
+    },
+    {
+      "id": "cmuz94azv0001h81qfdpymeu5",
+      "name": "KingMaker Fitness Studio",
+      "ownerName": "King",
+      "email": "psira42@gmail.com",
+      "phone": "7845753963",
+      "logoUrl": null,
+      "status": "ACTIVE",
+      "createdAt": "2026-10-08T08:05:13.768Z",
+      "updatedAt": "2026-10-08T08:06:19.231Z"
+    },
+    {
+      "id": "cmt0yks9u000110k9kdynci6r",
+      "name": "Testing Org",
+      "ownerName": "Test",
+      "email": "test@gmail.com",
+      "phone": "1234567890",
+      "logoUrl": "https://cyqyoauwehtddgtdfvlg.supabase.co/storage/v1/object/public/fitnexus/org-logos/cmt0yks9u000110k9kdynci6r/2fe0736c-097d-4ad5-b2b9-66f2c6cf729f.png",
+      "status": "ACTIVE",
+      "createdAt": "2026-08-20T03:26:14.563Z",
+      "updatedAt": "2026-10-21T16:34:32.843Z"
+    }
+  ],
+  "branch": [],
+  "membershipPlan": [],
+  "offer": [],
+  "member": [],
+  "memberMetricEntry": [],
+  "lead": [],
+  "leadActivity": [],
+  "employee": [],
+  "salaryComponent": [],
+  "payslip": [],
+  "review": [],
+  "reviewResponse": [],
+  "appraisal": [],
+  "employeeActivity": [],
+  "jobTitle": [
+    {
+      "id": "cmvie40f30000tjnessgr7j9z",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "name": "Manager",
+      "createdAt": "2026-10-21T17:32:35.487Z"
+    },
+    {
+      "id": "cmvie40f40001tjnehddk6o9s",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "name": "Trainer",
+      "createdAt": "2026-10-21T17:32:35.487Z"
+    },
+    {
+      "id": "cmvie40f40002tjnehreytdsy",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "name": "Front Desk",
+      "createdAt": "2026-10-21T17:32:35.487Z"
+    },
+    {
+      "id": "cmvie40f40003tjne927o0qnd",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "name": "Other",
+      "createdAt": "2026-10-21T17:32:35.487Z"
+    }
+  ],
+  "user": [
+    {
+      "id": "cmt0yks9u000010k9gzmh4tna",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "OWNER",
+      "name": "Test",
+      "email": "test@gmail.com",
+      "phone": "1234567890",
+      "password": "$2b$10$op4ujqMhneO71uV18xo00OoyeJ.b6igHo8yh8HERtdevzl4hPPkzK",
+      "passwordEnc": null,
+      "branchId": null,
+      "employeeId": null,
+      "emailVerifiedAt": "2026-08-20T03:29:59.411Z",
+      "phoneVerifiedAt": "2026-08-20T03:29:59.411Z",
+      "createdAt": "2026-08-20T03:26:14.563Z",
+      "updatedAt": "2026-08-20T03:29:59.457Z"
+    },
+    {
+      "id": "cmtiy0a7m00004ncm9cl7w1zj",
+      "organizationId": "cmtiy0a7n00014ncmr8s7sll9",
+      "role": "OWNER",
+      "name": "Siva",
+      "email": "eeknath20@gmail.com",
+      "phone": "8754596379",
+      "password": "$2b$10$40jTJV7yv6pzcPxyRPE9wehg7Xaxiv3aYOeEdyBqMWOrGZGq9iWNa",
+      "passwordEnc": null,
+      "branchId": null,
+      "employeeId": null,
+      "emailVerifiedAt": null,
+      "phoneVerifiedAt": null,
+      "createdAt": "2026-09-01T17:30:09.203Z",
+      "updatedAt": "2026-09-01T17:30:09.203Z"
+    },
+    {
+      "id": "cmtiyegmy000u4ncmb00muaum",
+      "organizationId": "cmtiyegmy000v4ncmgozc6g3x",
+      "role": "OWNER",
+      "name": "Siva",
+      "email": "test9090@gmail.com",
+      "phone": "8056112471",
+      "password": "$2b$10$cb8ltg.Y3F0Tc8kC6VQw2ep6LszJRec11HShTVBI/4g/k13UGYaoC",
+      "passwordEnc": null,
+      "branchId": null,
+      "employeeId": null,
+      "emailVerifiedAt": null,
+      "phoneVerifiedAt": null,
+      "createdAt": "2026-09-01T17:41:10.715Z",
+      "updatedAt": "2026-09-01T17:41:10.715Z"
+    },
+    {
+      "id": "cmuz94azu0000h81q325t5gv7",
+      "organizationId": "cmuz94azv0001h81qfdpymeu5",
+      "role": "OWNER",
+      "name": "King",
+      "email": "psira42@gmail.com",
+      "phone": "7845753963",
+      "password": "$2b$10$.udzVDL5PERJIc84TefC2u.QYMO7RJvhBmpWkie6rutXAkrJ7VMZm",
+      "passwordEnc": null,
+      "branchId": null,
+      "employeeId": null,
+      "emailVerifiedAt": "2026-10-08T08:06:19.136Z",
+      "phoneVerifiedAt": "2026-10-08T08:06:19.136Z",
+      "createdAt": "2026-10-08T08:05:13.768Z",
+      "updatedAt": "2026-10-21T16:55:41.020Z"
+    }
+  ],
+  "rolePermission": [
+    {
+      "id": "cmt5w9mhp000012s1x2rb2gw9",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "DASHBOARD",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T14:20:25.499Z"
+    },
+    {
+      "id": "cmt5w9mhp000312s1v9m1b082",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "LEADS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T14:20:25.499Z"
+    },
+    {
+      "id": "cmt5w9mhq000a12s1j4rstuzp",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "LEADS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T14:20:25.499Z"
+    },
+    {
+      "id": "cmt5w9mhq000e12s1ylut20qw",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "DASHBOARD",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T14:20:25.499Z"
+    },
+    {
+      "id": "cmt5w9mhq000f12s131w9mdlt",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "EMPLOYEES",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T14:20:25.499Z"
+    },
+    {
+      "id": "cmt5w9mhq000g12s1xyor3yan",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "ATTENDANCE",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T14:20:25.499Z"
+    },
+    {
+      "id": "cmt5w9mhq000h12s1ofrieif7",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "LEADS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T14:20:25.499Z"
+    },
+    {
+      "id": "cmt5w9mhq000i12s1iqqlfgxi",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "NOTIFICATIONS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T14:20:25.499Z"
+    },
+    {
+      "id": "cmt5w9mhq000j12s1t8rswpm9",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "BRANCHES",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T14:20:25.499Z"
+    },
+    {
+      "id": "cmt5w9mhq000k12s1y9pvdvsn",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "MEMBERS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T14:20:25.499Z"
+    },
+    {
+      "id": "cmt5w9mhp000112s1y0p00l90",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "EMPLOYEES",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T15:16:56.056Z"
+    },
+    {
+      "id": "cmt5w9mhp000212s1hcnp0xpf",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "ATTENDANCE",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T15:16:57.198Z"
+    },
+    {
+      "id": "cmt5w9mhp000412s15jhl8unm",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "NOTIFICATIONS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T15:16:59.691Z"
+    },
+    {
+      "id": "cmt5w9mhp000512s18tkfkdd2",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "BRANCHES",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T15:17:00.265Z"
+    },
+    {
+      "id": "cmt5w9mhq000612s15d5wqe63",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "MEMBERS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T15:17:00.818Z"
+    },
+    {
+      "id": "cmt5w9mhq000912s11kj2cl05",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "ATTENDANCE",
+      "canRead": false,
+      "canWrite": false,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T15:17:14.025Z"
+    },
+    {
+      "id": "cmt5w9mhq000b12s13fta78aa",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "NOTIFICATIONS",
+      "canRead": false,
+      "canWrite": false,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T15:17:17.047Z"
+    },
+    {
+      "id": "cmt5w9mhq000c12s18dtfd7in",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "BRANCHES",
+      "canRead": false,
+      "canWrite": false,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T15:17:18.481Z"
+    },
+    {
+      "id": "cmt5w9mhq000d12s1vfb450na",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "MEMBERS",
+      "canRead": false,
+      "canWrite": false,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T15:17:19.357Z"
+    },
+    {
+      "id": "cmt5w9mhq000712s1i0vcm0ox",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "DASHBOARD",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-23T15:18:11.681Z"
+    },
+    {
+      "id": "cmtaakdxx0000j27870j4xeph",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "PLANS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-26T16:11:46.966Z",
+      "updatedAt": "2026-08-26T16:11:46.966Z"
+    },
+    {
+      "id": "cmtaakdxx0002j278dd2os7vd",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "PLANS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-26T16:11:46.966Z",
+      "updatedAt": "2026-08-26T16:11:46.966Z"
+    },
+    {
+      "id": "cmtaakdxx0001j27817iy4wwx",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "PLANS",
+      "canRead": false,
+      "canWrite": false,
+      "createdAt": "2026-08-26T16:11:46.966Z",
+      "updatedAt": "2026-08-27T16:59:28.268Z"
+    },
+    {
+      "id": "cmtbs8v7k00001g7phwab0ip1",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "EXPENSES",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-27T17:14:28.736Z",
+      "updatedAt": "2026-08-27T17:14:28.736Z"
+    },
+    {
+      "id": "cmtbs8v7k00021g7pwno2vomb",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "EXPENSES",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-27T17:14:28.736Z",
+      "updatedAt": "2026-08-27T17:14:28.736Z"
+    },
+    {
+      "id": "cmtbs8v7k00011g7pu0rnahms",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "EXPENSES",
+      "canRead": false,
+      "canWrite": false,
+      "createdAt": "2026-08-27T17:14:28.736Z",
+      "updatedAt": "2026-08-28T01:14:22.867Z"
+    },
+    {
+      "id": "cmt5w9mhq000812s1s75wwjzs",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "EMPLOYEES",
+      "canRead": false,
+      "canWrite": false,
+      "createdAt": "2026-08-23T14:20:25.499Z",
+      "updatedAt": "2026-08-28T01:14:31.298Z"
+    },
+    {
+      "id": "cmtegk1j00000hif0ijh1sr65",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "LEAVES",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-29T14:10:33.276Z",
+      "updatedAt": "2026-08-29T14:10:33.276Z"
+    },
+    {
+      "id": "cmtegk1j00002hif01467z8ag",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "LEAVES",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-08-29T14:10:33.276Z",
+      "updatedAt": "2026-08-29T14:10:33.276Z"
+    },
+    {
+      "id": "cmtegk1j00001hif0sg1w0a0g",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "LEAVES",
+      "canRead": false,
+      "canWrite": false,
+      "createdAt": "2026-08-29T14:10:33.276Z",
+      "updatedAt": "2026-08-29T14:49:05.017Z"
+    },
+    {
+      "id": "cmuzo5uar0000bbpg2g2trmbr",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "FORMS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-10-08T15:06:19.683Z",
+      "updatedAt": "2026-10-08T15:06:19.683Z"
+    },
+    {
+      "id": "cmuzo5uar0001bbpgd3t7aqqt",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "screen": "FITNESS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-10-08T15:06:19.683Z",
+      "updatedAt": "2026-10-08T15:06:19.683Z"
+    },
+    {
+      "id": "cmuzo5uar0002bbpgko4oi9rv",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "FORMS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-10-08T15:06:19.683Z",
+      "updatedAt": "2026-10-08T15:06:19.683Z"
+    },
+    {
+      "id": "cmuzo5uar0003bbpgvq8ax450",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "screen": "FITNESS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-10-08T15:06:19.683Z",
+      "updatedAt": "2026-10-08T15:06:19.683Z"
+    },
+    {
+      "id": "cmuzo5uar0004bbpgqybdpp4a",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "FORMS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-10-08T15:06:19.683Z",
+      "updatedAt": "2026-10-08T15:06:19.683Z"
+    },
+    {
+      "id": "cmuzo5uar0005bbpgsrp1kwm0",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "screen": "FITNESS",
+      "canRead": true,
+      "canWrite": true,
+      "createdAt": "2026-10-08T15:06:19.683Z",
+      "updatedAt": "2026-10-08T15:06:19.683Z"
+    }
+  ],
+  "otpCode": [
+    {
+      "id": "cmt0yksiw000310k9ui7pnnzz",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "SIGNUP",
+      "channel": "PHONE",
+      "code": "929182",
+      "expiresAt": "2026-08-20T03:36:14.887Z",
+      "consumedAt": null,
+      "createdAt": "2026-08-20T03:26:14.888Z"
+    },
+    {
+      "id": "cmt0ykst4000510k9l0rxzx2g",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "SIGNUP",
+      "channel": "EMAIL",
+      "code": "283060",
+      "expiresAt": "2026-08-20T03:36:14.886Z",
+      "consumedAt": null,
+      "createdAt": "2026-08-20T03:26:14.888Z"
+    },
+    {
+      "id": "cmt0yo13o000710k96v1lhb04",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "SIGNUP",
+      "channel": "EMAIL",
+      "code": "953332",
+      "expiresAt": "2026-08-20T03:38:45.971Z",
+      "consumedAt": "2026-08-20T03:29:59.271Z",
+      "createdAt": "2026-08-20T03:28:45.972Z"
+    },
+    {
+      "id": "cmt0yo14t000910k912yvh3fp",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "SIGNUP",
+      "channel": "PHONE",
+      "code": "557417",
+      "expiresAt": "2026-08-20T03:38:45.971Z",
+      "consumedAt": "2026-08-20T03:29:59.320Z",
+      "createdAt": "2026-08-20T03:28:45.972Z"
+    },
+    {
+      "id": "cmuz94bbw0003h81qrhpcl8bc",
+      "userId": "cmuz94azu0000h81q325t5gv7",
+      "purpose": "SIGNUP",
+      "channel": "PHONE",
+      "code": "962590",
+      "expiresAt": "2026-10-08T08:15:14.203Z",
+      "consumedAt": "2026-10-08T08:06:18.836Z",
+      "createdAt": "2026-10-08T08:05:14.204Z"
+    },
+    {
+      "id": "cmtiy0bfc00034ncmplslhlf7",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "EMAIL",
+      "code": "714389",
+      "expiresAt": "2026-09-01T17:40:10.775Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:30:10.777Z"
+    },
+    {
+      "id": "cmtiy0c3k00054ncm0w87qfrt",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "PHONE",
+      "code": "291213",
+      "expiresAt": "2026-09-01T17:40:10.776Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:30:10.777Z"
+    },
+    {
+      "id": "cmtiy1c7r00074ncmogf0il7c",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "EMAIL",
+      "code": "437350",
+      "expiresAt": "2026-09-01T17:40:58.454Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:30:58.455Z"
+    },
+    {
+      "id": "cmtiy1cvz00094ncm9x21o22o",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "PHONE",
+      "code": "247051",
+      "expiresAt": "2026-09-01T17:40:58.454Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:30:58.456Z"
+    },
+    {
+      "id": "cmtiy1ks7000b4ncmzvtjie8b",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "EMAIL",
+      "code": "455899",
+      "expiresAt": "2026-09-01T17:41:09.557Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:31:09.559Z"
+    },
+    {
+      "id": "cmtiy1lgf000d4ncm974uu4hh",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "PHONE",
+      "code": "155948",
+      "expiresAt": "2026-09-01T17:41:09.557Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:31:09.560Z"
+    },
+    {
+      "id": "cmtiy63sr000f4ncmaqn224m9",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "EMAIL",
+      "code": "656699",
+      "expiresAt": "2026-09-01T17:44:40.827Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:34:40.828Z"
+    },
+    {
+      "id": "cmtiy64h6000h4ncmi0exso1u",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "PHONE",
+      "code": "437320",
+      "expiresAt": "2026-09-01T17:44:40.827Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:34:40.828Z"
+    },
+    {
+      "id": "cmtiy66fh000j4ncmezdpxi34",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "EMAIL",
+      "code": "926972",
+      "expiresAt": "2026-09-01T17:44:44.237Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:34:44.238Z"
+    },
+    {
+      "id": "cmtiy673p000l4ncm7tfpyb24",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "PHONE",
+      "code": "712468",
+      "expiresAt": "2026-09-01T17:44:44.237Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:34:44.238Z"
+    },
+    {
+      "id": "cmtiy6mvs000n4ncmsdlurxwo",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "EMAIL",
+      "code": "239808",
+      "expiresAt": "2026-09-01T17:45:05.560Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:35:05.560Z"
+    },
+    {
+      "id": "cmtiy6njz000p4ncmeqy18ks7",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "PHONE",
+      "code": "907170",
+      "expiresAt": "2026-09-01T17:45:05.560Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:35:05.561Z"
+    },
+    {
+      "id": "cmtiy76j2000r4ncmtw81lhbm",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "EMAIL",
+      "code": "262355",
+      "expiresAt": "2026-09-01T17:45:31.021Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:35:31.022Z"
+    },
+    {
+      "id": "cmtiy7779000t4ncm963jdmop",
+      "userId": "cmtiy0a7m00004ncm9cl7w1zj",
+      "purpose": "SIGNUP",
+      "channel": "PHONE",
+      "code": "807148",
+      "expiresAt": "2026-09-01T17:45:31.021Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:35:31.022Z"
+    },
+    {
+      "id": "cmtiyehv2000x4ncm8wj34t0j",
+      "userId": "cmtiyegmy000u4ncmb00muaum",
+      "purpose": "SIGNUP",
+      "channel": "EMAIL",
+      "code": "259712",
+      "expiresAt": "2026-09-01T17:51:12.302Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:41:12.303Z"
+    },
+    {
+      "id": "cmtiyeija000z4ncmv94gelgp",
+      "userId": "cmtiyegmy000u4ncmb00muaum",
+      "purpose": "SIGNUP",
+      "channel": "PHONE",
+      "code": "633412",
+      "expiresAt": "2026-09-01T17:51:12.302Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-01T17:41:12.303Z"
+    },
+    {
+      "id": "cmtk9szbq0001kf1x62dtcm5w",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "712061",
+      "expiresAt": "2026-09-02T15:58:10.067Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T15:48:10.068Z"
+    },
+    {
+      "id": "cmtka3z5x0001100etsh9qf0y",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "382909",
+      "expiresAt": "2026-09-02T16:06:43.076Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T15:56:43.077Z"
+    },
+    {
+      "id": "cmtka4w7800015i23ldxn5in9",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "502554",
+      "expiresAt": "2026-09-02T16:07:25.891Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T15:57:25.892Z"
+    },
+    {
+      "id": "cmtka58xl0003100esav3jfey",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "383277",
+      "expiresAt": "2026-09-02T16:07:42.392Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T15:57:42.393Z"
+    },
+    {
+      "id": "cmtka8w6p00019srkngymfclr",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "631887",
+      "expiresAt": "2026-09-02T16:10:32.496Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T16:00:32.497Z"
+    },
+    {
+      "id": "cmtkae5ci0001tl29zzdsvwzj",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "940515",
+      "expiresAt": "2026-09-02T16:14:37.649Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T16:04:37.650Z"
+    },
+    {
+      "id": "cmtkalieq0003tl29ma3jqcj9",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "724948",
+      "expiresAt": "2026-09-02T16:20:21.169Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T16:10:21.170Z"
+    },
+    {
+      "id": "cmtkanqaa0005tl293rkkd73h",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "536093",
+      "expiresAt": "2026-09-02T16:22:04.689Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T16:12:04.690Z"
+    },
+    {
+      "id": "cmtkatt9y0001ddkov7y8zmns",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "957955",
+      "expiresAt": "2026-09-02T16:26:48.501Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T16:16:48.503Z"
+    },
+    {
+      "id": "cmtkaug840003ddkom6sv5lh8",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "567561",
+      "expiresAt": "2026-09-02T16:27:18.243Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T16:17:18.244Z"
+    },
+    {
+      "id": "cmtkawrkj0001dxkp4lyvnfds",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "817397",
+      "expiresAt": "2026-09-02T16:29:06.259Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T16:19:06.260Z"
+    },
+    {
+      "id": "cmtkb08kh0003dxkpvdoekzkw",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "711274",
+      "expiresAt": "2026-09-02T16:31:48.257Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-02T16:21:48.258Z"
+    },
+    {
+      "id": "cmtmrsa280001116r5bydwqp9",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "536183",
+      "expiresAt": "2026-09-04T09:57:02.767Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-04T09:47:02.768Z"
+    },
+    {
+      "id": "cmtmrvk4t0003116r6bmzqvkc",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "883827",
+      "expiresAt": "2026-09-04T09:59:35.789Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-04T09:49:35.790Z"
+    },
+    {
+      "id": "cmtmz5u9r00011bf142kkoz68",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "138562",
+      "expiresAt": "2026-09-04T13:23:31.581Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-04T13:13:31.583Z"
+    },
+    {
+      "id": "cmtmz5uyj00031bf19pc0tqyv",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "205443",
+      "expiresAt": "2026-09-04T13:23:32.799Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-04T13:13:32.800Z"
+    },
+    {
+      "id": "cmtmz8bxm0001ghrao8zu2d4g",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "846743",
+      "expiresAt": "2026-09-04T13:25:29.002Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-04T13:15:29.003Z"
+    },
+    {
+      "id": "cmtmzkmvp0003ghraxu2ct87g",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "562221",
+      "expiresAt": "2026-09-04T13:35:03.060Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-04T13:25:03.061Z"
+    },
+    {
+      "id": "cmtn0wkbj0001c60iqthloirs",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "134752",
+      "expiresAt": "2026-09-04T14:12:19.231Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-04T14:02:19.232Z"
+    },
+    {
+      "id": "cmtn0xtxe0001ue74xs13ql9s",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "480111",
+      "expiresAt": "2026-09-04T14:13:18.336Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-04T14:03:18.337Z"
+    },
+    {
+      "id": "cmtn1agw10001y7b7cr1ae0pt",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "890611",
+      "expiresAt": "2026-09-04T14:23:07.793Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-04T14:13:07.794Z"
+    },
+    {
+      "id": "cmtn1j0pn0001ym156fuvy82r",
+      "userId": "cmt0yks9u000010k9gzmh4tna",
+      "purpose": "PASSWORD_RESET",
+      "channel": "EMAIL",
+      "code": "981110",
+      "expiresAt": "2026-09-04T14:29:46.906Z",
+      "consumedAt": null,
+      "createdAt": "2026-09-04T14:19:46.907Z"
+    },
+    {
+      "id": "cmuz94bkm0005h81qykiqeha9",
+      "userId": "cmuz94azu0000h81q325t5gv7",
+      "purpose": "SIGNUP",
+      "channel": "EMAIL",
+      "code": "665885",
+      "expiresAt": "2026-10-08T08:15:14.202Z",
+      "consumedAt": "2026-10-08T08:06:18.907Z",
+      "createdAt": "2026-10-08T08:05:14.204Z"
+    },
+    {
+      "id": "cmuzeqsoc000133uuo0z07pxw",
+      "userId": "cmuz94azu0000h81q325t5gv7",
+      "purpose": "PASSWORD_RESET",
+      "channel": "PHONE",
+      "code": "233093",
+      "expiresAt": "2026-10-08T10:52:41.192Z",
+      "consumedAt": null,
+      "createdAt": "2026-10-08T10:42:41.193Z"
+    },
+    {
+      "id": "cmvicd19n0006d15gec8nletf",
+      "userId": "cmuz94azu0000h81q325t5gv7",
+      "purpose": "PASSWORD_RESET",
+      "channel": "PHONE",
+      "code": "769337",
+      "expiresAt": "2026-10-21T16:53:37.259Z",
+      "consumedAt": "2026-10-21T16:43:55.398Z",
+      "createdAt": "2026-10-21T16:43:37.260Z"
+    },
+    {
+      "id": "cmvics2lw0001p1mqk971482e",
+      "userId": "cmuz94azu0000h81q325t5gv7",
+      "purpose": "PASSWORD_RESET",
+      "channel": "PHONE",
+      "code": "750694",
+      "expiresAt": "2026-10-21T17:05:18.832Z",
+      "consumedAt": null,
+      "createdAt": "2026-10-21T16:55:18.833Z"
+    },
+    {
+      "id": "cmvics7qd0003p1mqp7dkt4ia",
+      "userId": "cmuz94azu0000h81q325t5gv7",
+      "purpose": "PASSWORD_RESET",
+      "channel": "PHONE",
+      "code": "917265",
+      "expiresAt": "2026-10-21T17:05:25.476Z",
+      "consumedAt": "2026-10-21T16:55:40.722Z",
+      "createdAt": "2026-10-21T16:55:25.477Z"
+    }
+  ],
+  "notification": [],
+  "notificationSetup": [
+    {
+      "id": "cmvie34zx0001av4beezuu5r0",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "enabled": true,
+      "autoCleanDays": null,
+      "soundEnabled": true,
+      "createdAt": "2026-10-21T17:31:54.764Z",
+      "updatedAt": "2026-10-21T17:31:54.764Z"
+    }
+  ],
+  "notificationConfig": [],
+  "expense": [],
+  "leaveAllocationConfig": [
+    {
+      "id": "cmu8mp2xs000cvutuqctbszai",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "leaveType": "CASUAL",
+      "monthlyAllocation": "1",
+      "carryForwardCap": "365",
+      "updatedAt": "2026-09-19T16:55:31.289Z"
+    },
+    {
+      "id": "cmu8mp2xs000gvutukl62hux6",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "leaveType": "CASUAL",
+      "monthlyAllocation": "2",
+      "carryForwardCap": "365",
+      "updatedAt": "2026-09-19T16:55:31.286Z"
+    },
+    {
+      "id": "cmu8mp2xw000ivutud09mch73",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "leaveType": "SICK",
+      "monthlyAllocation": "1",
+      "carryForwardCap": "365",
+      "updatedAt": "2026-09-19T16:55:31.289Z"
+    },
+    {
+      "id": "cmu8mp2xs000evutuugkthtjj",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "leaveType": "SICK",
+      "monthlyAllocation": "2",
+      "carryForwardCap": "365",
+      "updatedAt": "2026-09-19T16:55:31.287Z"
+    },
+    {
+      "id": "cmu8mp396000qvutuhwtfnqq7",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "leaveType": "SICK",
+      "monthlyAllocation": "1",
+      "carryForwardCap": "365",
+      "updatedAt": "2026-09-19T16:55:31.770Z"
+    },
+    {
+      "id": "cmtegoor90004hif0z5mffpcn",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "leaveType": "CASUAL",
+      "monthlyAllocation": "2",
+      "carryForwardCap": "365",
+      "updatedAt": "2026-09-19T17:03:38.917Z"
+    },
+    {
+      "id": "cmu8mp2xw000mvutu703ghkp6",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "BRANCH_MANAGER",
+      "leaveType": "EARNED",
+      "monthlyAllocation": "2",
+      "carryForwardCap": "30",
+      "updatedAt": "2026-09-19T17:39:11.029Z"
+    },
+    {
+      "id": "cmu8mp396000svutuib1li07j",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "FRONT_DESK",
+      "leaveType": "EARNED",
+      "monthlyAllocation": "1",
+      "carryForwardCap": "20",
+      "updatedAt": "2026-09-19T17:39:11.031Z"
+    },
+    {
+      "id": "cmu8mp38b000ovutuvhlpe0rn",
+      "organizationId": "cmt0yks9u000110k9kdynci6r",
+      "role": "TRAINER",
+      "leaveType": "EARNED",
+      "monthlyAllocation": "1",
+      "carryForwardCap": "25",
+      "updatedAt": "2026-09-19T17:39:11.030Z"
+    }
+  ],
+  "leaveBalance": [],
+  "leaveRequest": [],
+  "biometricDevice": [],
+  "biometricEnrollment": [],
+  "attendancePunch": [],
+  "attendanceDayRecord": [],
+  "holiday": [],
+  "alert": [],
+  "alertDismissal": [],
+  "formTemplate": [],
+  "formField": [],
+  "formShareLink": [],
+  "formSubmission": [],
+  "formAnswer": [],
+  "dietPlan": [],
+  "dietPlanItem": [],
+  "workoutPlan": [],
+  "workoutPlanExercise": [],
+  "workoutSet": [],
+  "memberPublicAccess": []
+}
