@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { JwtModule } from '@nestjs/jwt';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { BranchesModule } from './branches/branches.module';
@@ -22,6 +24,8 @@ import { VersionModule } from './version/version.module';
 import { OrganizationModule } from './organization/organization.module';
 import { FormsModule } from './forms/forms.module';
 import { FitnessModule } from './fitness/fitness.module';
+import { BillingModule } from './billing/billing.module';
+import { SubscriptionGuard } from './billing/guards/subscription.guard';
 
 @Module({
   imports: [
@@ -29,6 +33,19 @@ import { FitnessModule } from './fitness/fitness.module';
     // Enables @Cron() anywhere in the app — used by
     // NotificationsCronService for follow-up reminders and auto-clean.
     ScheduleModule.forRoot(),
+    // Registered here (not just in AuthModule, which doesn't export
+    // its own JwtModule) so SubscriptionGuard — a bare provider in
+    // THIS module, not inside AuthModule — can inject JwtService to
+    // verify bearer tokens itself. Same secret/config as AuthModule's
+    // own JwtModule registration; signing stays AuthService's job,
+    // this one is verify-only.
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.get<string>('JWT_SECRET') ?? 'change-me-in-production',
+      }),
+    }),
     PrismaModule,
     AuthModule,
     RolesModule,
@@ -50,6 +67,17 @@ import { FitnessModule } from './fitness/fitness.module';
     VersionModule,
     FormsModule,
     FitnessModule,
+    BillingModule,
+  ],
+  providers: [
+    // Applied globally so EVERY route (reads included, not just
+    // writes) is blocked the instant an org's subscription has
+    // expired, without having to add @UseGuards(SubscriptionGuard) to
+    // every controller individually — see SubscriptionGuard's own doc
+    // comment for the allowlisted paths and why it verifies the JWT
+    // itself rather than depending on request.user/controller guard
+    // ordering.
+    { provide: APP_GUARD, useClass: SubscriptionGuard },
   ],
 })
 export class AppModule {}

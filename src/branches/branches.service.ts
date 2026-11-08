@@ -1,11 +1,15 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { BillingService } from '../billing/billing.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 
 @Injectable()
 export class BranchesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private billingService: BillingService,
+  ) {}
 
   /** Case-insensitive/whitespace-tolerant duplicate-location check within
    * the org, scoped to whatever branch is being saved (excludeId lets an
@@ -44,6 +48,17 @@ export class BranchesService {
 
     const existingCount = await this.prisma.branch.count({ where: { organizationId } });
     const isFirstBranch = existingCount === 0;
+
+    // Plan cap check — the org's current tier (or full access while
+    // trialing, see BillingService.effectiveLimits) sets how many
+    // branches it may have; the very first branch is still allowed
+    // through even on the smallest tier (maxBranches is always >= 1).
+    const limits = await this.billingService.effectiveLimits(organizationId);
+    if (existingCount >= limits.maxBranches) {
+      throw new ForbiddenException(
+        `Your current plan allows up to ${limits.maxBranches} branch${limits.maxBranches === 1 ? '' : 'es'}. Upgrade to add more.`,
+      );
+    }
 
     // The org's very first branch is always the main branch — no
     // checkbox needed. From the second branch onward, respect whatever

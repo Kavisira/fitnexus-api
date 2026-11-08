@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { BiometricVendorType, PunchDirection, PunchPersonType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,12 +7,14 @@ import { UpdateDeviceDto } from './dto/update-device.dto';
 import { UpsertEnrollmentDto } from './dto/upsert-enrollment.dto';
 import { SimulatePunchDto } from './dto/simulate-punch.dto';
 import { AttendanceIngestService } from './attendance-ingest.service';
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class AttendanceDevicesService {
   constructor(
     private prisma: PrismaService,
     private ingestService: AttendanceIngestService,
+    private billingService: BillingService,
   ) {}
 
   private async assertBranch(organizationId: string, branchId: string) {
@@ -23,6 +25,14 @@ export class AttendanceDevicesService {
   }
 
   async create(organizationId: string, dto: CreateDeviceDto) {
+    // Biometric attendance (registering an actual ADMS device) is a
+    // tier-gated feature, unlocked from PLUS upward — see TIER_LIMITS
+    // in billing.constants.ts. Full access while trialing.
+    const limits = await this.billingService.effectiveLimits(organizationId);
+    if (!limits.biometricAttendance) {
+      throw new ForbiddenException('Biometric attendance devices require an upgraded plan.');
+    }
+
     await this.assertBranch(organizationId, dto.branchId);
     if (dto.vendorType === BiometricVendorType.ADMS_PUSH) {
       const existing = await this.prisma.biometricDevice.findFirst({ where: { organizationId, serialNumber: dto.serialNumber } });

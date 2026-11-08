@@ -13,6 +13,11 @@ export class CreateMetricEntryDto {
   @IsOptional() @IsNumber() @Min(1) chestCm?: number;
   @IsOptional() @IsNumber() @Min(1) waistCm?: number;
   @IsOptional() @IsNumber() @Min(1) hipsCm?: number;
+  // Full-body muscle measurements, added alongside chest/waist/hips.
+  @IsOptional() @IsNumber() @Min(1) armsCm?: number;
+  @IsOptional() @IsNumber() @Min(1) thighCm?: number;
+  @IsOptional() @IsNumber() @Min(1) calfCm?: number;
+  @IsOptional() @IsNumber() @Min(1) shouldersCm?: number;
   @IsOptional() @IsDateString() recordedAt?: string;
   @IsOptional() @IsString() photoDataUrl?: string;
 }

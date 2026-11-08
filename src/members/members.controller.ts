@@ -1,10 +1,12 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { Screen } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionGuard } from '../auth/guards/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { CurrentUser, AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { MembersService } from './members.service';
+import { InvoicePdfService } from './invoice-pdf.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { CreateMetricEntryDto } from './dto/create-metric-entry.dto';
@@ -13,7 +15,10 @@ import { ParseMembersCsvDto, CommitMembersImportDto } from './dto/import-members
 @Controller('members')
 @UseGuards(JwtAuthGuard, PermissionGuard)
 export class MembersController {
-  constructor(private membersService: MembersService) {}
+  constructor(
+    private membersService: MembersService,
+    private invoicePdfService: InvoicePdfService,
+  ) {}
 
   // branchId passed by the caller is only honored for the owner
   // (chain-wide) — a staff user's own branchId always wins, same pattern
@@ -31,6 +36,7 @@ export class MembersController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('branchId') branchId?: string,
     @Query('status') status?: string,
+    @Query('hasPersonalTrainer') hasPersonalTrainer?: string,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
@@ -43,6 +49,7 @@ export class MembersController {
     return this.membersService.findAll(user.organizationId, {
       branchIds: effectiveBranchIds,
       statuses,
+      hasPersonalTrainer: hasPersonalTrainer === 'true' ? true : hasPersonalTrainer === 'false' ? false : undefined,
       search,
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
@@ -79,6 +86,22 @@ export class MembersController {
   @RequirePermission(Screen.MEMBERS, 'read')
   listMetricEntries(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.membersService.listMetricEntries(user.organizationId, id);
+  }
+
+  // Downloadable PDF invoice — built from the same MemberPayment
+  // ledger the WhatsApp invoice text uses, so the two never disagree.
+  // 400s (via getInvoiceData) if no payment has been recorded yet
+  // (trial members, or a member created but not yet paid).
+  @Get(':id/invoice/pdf')
+  @RequirePermission(Screen.MEMBERS, 'read')
+  async invoicePdf(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Res() res: Response) {
+    const { member, payments } = await this.membersService.getInvoiceData(user.organizationId, id);
+    const organization = await this.membersService.organizationForPdf(user.organizationId);
+    const buffer = await this.invoicePdfService.render(member, payments, organization);
+    const filename = `Invoice-${member.name.replace(/[^a-zA-Z0-9]+/g, '-')}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
   }
 
   // ---- Bulk import (CSV) — see MembersService's doc comment on the

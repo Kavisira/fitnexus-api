@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { isOrgSubscriptionExpired } from '../billing/billing.constants';
 import { NotificationsService } from './notifications.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 type OffsetUnit = 'MINUTES' | 'HOURS' | 'DAYS';
 type Offset = { value: number; unit: OffsetUnit };
@@ -27,6 +29,13 @@ const DEFAULT_MEMBERSHIP_EXPIRY_OFFSETS: Offset[] = [
   { value: 0, unit: 'DAYS' },
 ];
 
+// PT expiry is a single one-time nudge to the gym OWNER (renewing PT
+// is a staff upsell action, not a member self-service one — see
+// NotificationType.PT_EXPIRY's doc comment), not a 7/3/0-day sequence
+// like membership's own expiry reminder. 3 days before by default;
+// override via PT_EXPIRY's config.rule.offsets same as the others.
+const DEFAULT_PT_EXPIRY_OFFSETS: Offset[] = [{ value: 3, unit: 'DAYS' }];
+
 function offsetMs(offset: Offset): number {
   switch (offset.unit) {
     case 'MINUTES':
@@ -45,7 +54,82 @@ export class NotificationsCronService {
   constructor(
     private prisma: PrismaService,
     private notificationsService: NotificationsService,
+    private whatsapp: WhatsappService,
   ) {}
+
+  /**
+   * Once a day — sweeps every member with an unpaid balance
+   * (amountPaid < price) whose paymentFollowUpDate is today or
+   * earlier, and WhatsApps a reminder to the member and/or the org's
+   * OWNER, per Member.notifyMemberOnPaymentDue/notifyGymOnPaymentDue.
+   * Deliberately a direct WhatsappService call rather than routing
+   * through NotificationsService.notify()/NotificationType — this is
+   * a per-member balance reminder with its own per-member recipient
+   * toggles, not an org-wide config'd type like the others in this
+   * file, and there's no natural single NotificationType bucket for
+   * it. Reuses the generic sendNotification template, same as the
+   * invoice send in MembersService.create. Deliberately fires once a
+   * day for as long as the balance stays unpaid (no groupKey dedup,
+   * unlike the other crons here) — an overdue balance should keep
+   * nudging daily until it's actually cleared, not go quiet after
+   * one reminder.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_9AM)
+  async checkPaymentFollowUps(): Promise<void> {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999); // include anything due later today
+
+    const members = await this.prisma.member.findMany({
+      where: {
+        paymentFollowUpDate: { not: null, lte: today },
+        status: 'ACTIVE',
+        // Trial members never get payment invoices/reminders — see
+        // the isTrial guard in MembersService.create/update.
+        isTrial: false,
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        name: true,
+        phone: true,
+        price: true,
+        ptTotal: true,
+        amountPaid: true,
+        notifyMemberOnPaymentDue: true,
+        notifyGymOnPaymentDue: true,
+        branch: { select: { currency: true } },
+      },
+    });
+
+    // Balance is against the combined membership + PT total, same as
+    // MembersService.create/update — PT is collected as one payment
+    // with the membership, so an unpaid balance here may include an
+    // unpaid PT portion too, not just the membership price.
+    const totalPayable = (m: (typeof members)[number]) => Number(m.price) + Number(m.ptTotal ?? 0);
+    const lockedOut = await this.getLockedOutOrganizationIds();
+    const due = members.filter(
+      (m) => Number(m.amountPaid ?? totalPayable(m)) < totalPayable(m) && !lockedOut.has(m.organizationId),
+    );
+
+    for (const member of due) {
+      const balance = Math.max(0, totalPayable(member) - Number(member.amountPaid ?? 0));
+      const currency = member.branch?.currency ?? 'INR';
+      const message = `Reminder: ${member.name} has an outstanding balance of ${currency} ${balance.toFixed(2)} for their FitNexus membership.`;
+
+      if (member.notifyMemberOnPaymentDue && member.phone) {
+        void this.whatsapp.sendNotification(member.phone, 'Payment reminder', message);
+      }
+      if (member.notifyGymOnPaymentDue) {
+        const owner = await this.prisma.user.findFirst({
+          where: { organizationId: member.organizationId, role: 'OWNER' },
+          select: { phone: true },
+        });
+        if (owner?.phone) {
+          void this.whatsapp.sendNotification(owner.phone, 'Payment reminder', message);
+        }
+      }
+    }
+  }
 
   /**
    * Every 5 minutes — fine-grained enough for minute-level offsets
@@ -192,9 +276,9 @@ export class NotificationsCronService {
     const day = today.getDate();
     const dateKey = today.toISOString().slice(0, 10);
 
-    const organizations = await this.prisma.organization.findMany({ select: { id: true } });
+    const organizations = await this.activeOrganizationIds();
 
-    for (const { id: organizationId } of organizations) {
+    for (const organizationId of organizations) {
       let configs;
       try {
         configs = await this.notificationsService.listConfigs(organizationId);
@@ -270,9 +354,9 @@ export class NotificationsCronService {
     const today = new Date();
     const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
-    const organizations = await this.prisma.organization.findMany({ select: { id: true } });
+    const organizations = await this.activeOrganizationIds();
 
-    for (const { id: organizationId } of organizations) {
+    for (const organizationId of organizations) {
       let config;
       try {
         const configs = await this.notificationsService.listConfigs(organizationId);
@@ -315,6 +399,165 @@ export class NotificationsCronService {
           recipient: { phone: member.phone, email: member.email, name: member.name },
         });
       }
+    }
+  }
+
+  /**
+   * Once a day — one-time renewal nudge to the org OWNER that a
+   * member's Personal Training term is ending soon. Deliberately
+   * staff-facing only (recipient is the OWNER, never the member — see
+   * NotificationType.PT_EXPIRY's doc comment), unlike
+   * checkMembershipExpiry above which goes straight to the member.
+   * Same offset-matching/groupKey-dedup mechanics as
+   * checkMembershipExpiry, just against ptEndDate instead of endDate,
+   * and against hasPersonalTrainer members only. PT past its end date
+   * is never force-cancelled or cleared here — it's simply treated as
+   * expired/inactive by date everywhere else in the app (see
+   * Member.hasPersonalTrainer's doc comment in schema.prisma); this
+   * cron only ever sends the one reminder, nothing else.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_8AM)
+  async checkPtExpiry(): Promise<void> {
+    const today = new Date();
+    const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    const organizations = await this.activeOrganizationIds();
+
+    for (const organizationId of organizations) {
+      let config;
+      try {
+        const configs = await this.notificationsService.listConfigs(organizationId);
+        config = configs.find((c) => c.type === 'PT_EXPIRY');
+      } catch (err) {
+        this.logger.error(`Failed to load notification config for org ${organizationId}`, err as Error);
+        continue;
+      }
+      if (!config?.enabled) continue;
+
+      const offsets = (config.rule as { offsets?: Offset[] } | null)?.offsets ?? DEFAULT_PT_EXPIRY_OFFSETS;
+      const offsetDays = [...new Set(offsets.map((o) => Math.round(offsetMs(o) / 86_400_000)))];
+      if (!offsetDays.length) continue;
+
+      const maxOffset = Math.max(...offsetDays);
+      const rangeEnd = new Date(todayDateOnly.getTime() + (maxOffset + 1) * 86_400_000);
+
+      const members = await this.prisma.member.findMany({
+        where: {
+          organizationId,
+          status: 'ACTIVE',
+          hasPersonalTrainer: true,
+          ptEndDate: { gte: todayDateOnly, lt: rangeEnd },
+        },
+        select: { id: true, name: true, ptEndDate: true },
+      });
+
+      if (!members.length) continue;
+
+      const owner = await this.prisma.user.findFirst({
+        where: { organizationId, role: 'OWNER' },
+        select: { phone: true, email: true, name: true },
+      });
+      if (!owner) continue;
+
+      for (const member of members) {
+        if (!member.ptEndDate) continue;
+        const daysUntilExpiry = Math.round((member.ptEndDate.getTime() - todayDateOnly.getTime()) / 86_400_000);
+        if (!offsetDays.includes(daysUntilExpiry)) continue;
+
+        const label =
+          daysUntilExpiry === 0
+            ? "Personal Training ends today"
+            : `Personal Training ends in ${daysUntilExpiry} day${daysUntilExpiry === 1 ? '' : 's'}`;
+
+        await this.notificationsService.notify(organizationId, {
+          type: 'PT_EXPIRY',
+          title: 'Personal Training expiring',
+          message: `${member.name}'s ${label} — renew it to keep the sessions going.`,
+          entityType: 'member',
+          entityId: member.id,
+          groupKey: `pt-expiry:${member.id}:${daysUntilExpiry}d`,
+          recipient: { phone: owner.phone, email: owner.email, name: owner.name },
+        });
+      }
+    }
+  }
+
+  /**
+   * Every org-wide notification cron in this file (birthdays,
+   * membership expiry, PT expiry) should go quiet for an org whose
+   * trial/paid period has run out — see checkSubscriptionLockedReminder
+   * below for the one notification type that keeps firing instead.
+   * Fetches fresh every cron tick rather than caching, since this can
+   * flip within a day (a renewal mid-day should un-suppress the very
+   * next run, not wait for some TTL to expire).
+   */
+  private async getLockedOutOrganizationIds(): Promise<Set<string>> {
+    const organizations = await this.prisma.organization.findMany({
+      select: { id: true, subscriptionStatus: true, currentPeriodEnd: true },
+    });
+    return new Set(organizations.filter((org) => isOrgSubscriptionExpired(org)).map((org) => org.id));
+  }
+
+  /** Every organization EXCEPT ones currently locked out — the
+   * org-list source for every renewal-flavored cron below
+   * (birthdays/membership-expiry/PT-expiry), so a locked-out org's
+   * members/employees never get swept into those checks at all. */
+  private async activeOrganizationIds(): Promise<string[]> {
+    const organizations = await this.prisma.organization.findMany({
+      select: { id: true, subscriptionStatus: true, currentPeriodEnd: true },
+    });
+    return organizations.filter((org) => !isOrgSubscriptionExpired(org)).map((org) => org.id);
+  }
+
+  /**
+   * Once a day — the one notification type that is NOT suppressed by
+   * the hard-lockout policy (every other cron in this file explicitly
+   * excludes locked-out orgs — see activeOrganizationIds/
+   * getLockedOutOrganizationIds above). Sends exactly one WhatsApp/
+   * email nudge per day, for as long as the org stays expired, to the
+   * OWNER only — never a member, and never a staff account, since only
+   * the Owner can act on it (billing is Owner-only everywhere else in
+   * this app). Deduped per calendar day via groupKey, same pattern as
+   * checkBirthdays, so a missed/retried run never double-sends.
+   * Gated by the SUBSCRIPTION_LOCKED config same as every other type
+   * (on by default — see DEFAULT_CONFIG in notifications.service.ts)
+   * so an org can still turn it off if they genuinely want to, even
+   * though the app itself stays locked either way.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_10AM)
+  async checkSubscriptionLockedReminder(): Promise<void> {
+    const dateKey = new Date().toISOString().slice(0, 10);
+
+    const organizations = await this.prisma.organization.findMany({
+      select: { id: true, subscriptionStatus: true, currentPeriodEnd: true },
+    });
+    const lockedOut = organizations.filter((org) => isOrgSubscriptionExpired(org));
+    if (!lockedOut.length) return;
+
+    for (const { id: organizationId } of lockedOut) {
+      let config;
+      try {
+        const configs = await this.notificationsService.listConfigs(organizationId);
+        config = configs.find((c) => c.type === 'SUBSCRIPTION_LOCKED');
+      } catch (err) {
+        this.logger.error(`Failed to load notification config for org ${organizationId}`, err as Error);
+        continue;
+      }
+      if (!config?.enabled) continue;
+
+      const owner = await this.prisma.user.findFirst({
+        where: { organizationId, role: 'OWNER' },
+        select: { phone: true, email: true, name: true },
+      });
+      if (!owner) continue;
+
+      await this.notificationsService.notify(organizationId, {
+        type: 'SUBSCRIPTION_LOCKED',
+        title: 'Subscription expired',
+        message: "Your FitNexus subscription has expired and your gym's team is currently locked out. Renew now to restore access.",
+        groupKey: `subscription-locked:${organizationId}:${dateKey}`,
+        recipient: { phone: owner.phone, email: owner.email, name: owner.name },
+      });
     }
   }
 }

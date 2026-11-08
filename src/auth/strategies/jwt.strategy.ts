@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { isOrgSubscriptionExpired } from '../../billing/billing.constants';
 
 interface JwtPayload {
   sub: string;
@@ -57,7 +58,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // right after this ships.
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { currentSessionId: true },
+      select: {
+        currentSessionId: true,
+        organization: { select: { subscriptionStatus: true, currentPeriodEnd: true } },
+      },
     });
     if (!user || !payload.sid || user.currentSessionId !== payload.sid) {
       throw new UnauthorizedException({
@@ -65,6 +69,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         code: 'SESSION_REPLACED',
       });
     }
+
+    // Whether this org's trial/paid period has actually run out right
+    // now — computed fresh from the DB on every request (never trusted
+    // from the JWT, which could be hours/days stale) and attached to
+    // request.user so SubscriptionGuard can block write actions
+    // immediately once it's true, without its own extra query.
+    const isSubscriptionExpired = user.organization
+      ? isOrgSubscriptionExpired(user.organization)
+      : false;
 
     // Whatever this returns becomes `request.user` in guarded routes —
     // organizationId lets every feature module scope its queries to the
@@ -82,6 +95,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       role: payload.role ?? UserRole.OWNER,
       branchId: payload.branchId ?? null,
       employeeId: payload.employeeId ?? null,
+      isSubscriptionExpired,
     };
   }
 }

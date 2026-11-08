@@ -5,6 +5,8 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { OtpChannel, OtpPurpose, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TRIAL_DAYS, toSubscriptionSummary } from '../billing/billing.constants';
+import { BillingService } from '../billing/billing.service';
 import { normalizePhone } from '../common/phone.util';
 import { OTP_DEBUG_EXPOSE, OtpService } from './otp.service';
 import { RegisterDto } from './dto/register.dto';
@@ -26,6 +28,7 @@ export class AuthService {
     private otp: OtpService,
     private jwt: JwtService,
     private config: ConfigService,
+    private billingService: BillingService,
   ) {}
 
   /** Same key the owner's "view staff credentials" screen decrypts
@@ -100,6 +103,14 @@ export class AuthService {
       throw new BadRequestException('One or both verification codes are invalid or expired.');
     }
 
+    // Starts the 30-day free trial the moment the org actually
+    // becomes usable (both OTPs verified) — not at raw signup, so an
+    // abandoned/never-verified registration never burns trial time.
+    // See billing.constants.ts (TRIAL_DAYS) and BillingService for how
+    // this interacts with the dashboard countdown and the login-time
+    // expiry check.
+    const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
+
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: user.id },
@@ -107,7 +118,7 @@ export class AuthService {
       }),
       this.prisma.organization.update({
         where: { id: user.organizationId },
-        data: { status: 'ACTIVE' },
+        data: { status: 'ACTIVE', subscriptionStatus: 'TRIALING', trialEndsAt, currentPeriodEnd: trialEndsAt },
       }),
     ]);
 
@@ -166,7 +177,17 @@ export class AuthService {
     // "Remember me" unchecked → session expires in 30 minutes.
     // "Remember me" checked → session expires in 30 days.
     const expiresIn = dto.rememberMe ? '30d' : '30m';
-    return await this.issueToken(user.id, user.email, user.organizationId, user.role, user.branchId, user.employeeId, expiresIn);
+    const token = await this.issueToken(user.id, user.email, user.organizationId, user.role, user.branchId, user.employeeId, expiresIn);
+    // Subscription summary rides along in the login response itself —
+    // per the explicit requirement that expiry be checked fresh "in
+    // login response", not just discovered later from a failed write.
+    // See JwtStrategy.validate() for the equally-fresh per-request
+    // check that actually blocks actions once this is expired.
+    // ensureTrialStarted backfills trialEndsAt for any org that
+    // reached TRIALING before that column existed (or was seeded
+    // directly) — otherwise the countdown has nothing to count from.
+    const org = await this.billingService.ensureTrialStarted(user.organizationId);
+    return { ...token, subscription: toSubscriptionSummary(org) };
   }
 
   /** Step 1 of forgot-password: look up by email or phone, send one OTP
@@ -278,6 +299,8 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('Session user no longer exists.');
     }
+    // See the same backfill call/comment in login() above.
+    const org = await this.billingService.ensureTrialStarted(user.organizationId);
     return {
       userId: user.id,
       name: user.name,
@@ -287,6 +310,9 @@ export class AuthService {
       branch: user.branch,
       employeeId: user.employeeId,
       employeeName: user.employee?.name ?? null,
+      // Powers the dashboard's plan-name + expiry-countdown widget for
+      // every page load, not just right after login.
+      subscription: toSubscriptionSummary(org),
     };
   }
 

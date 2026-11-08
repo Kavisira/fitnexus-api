@@ -9,6 +9,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { PermissionGuard } from './guards/permission.guard';
 import { RolesModule } from '../roles/roles.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { BillingModule } from '../billing/billing.module';
 import { EmailModule } from '../email/email.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { EmailModule } from '../email/email.module';
     PassportModule,
     RolesModule,
     WhatsappModule,
+    BillingModule,
     EmailModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

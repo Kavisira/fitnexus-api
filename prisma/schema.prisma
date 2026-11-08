@@ -93,6 +93,70 @@ enum OrganizationStatus {
   NOT_ACTIVE
 }
 
+// The SaaS subscription tier itself — governs branch/member caps and
+// which features (biometric attendance today) are unlocked. ENTERPRISE
+// has no self-serve price; an org only lands on it via a manual,
+// off-platform arrangement (see BillingService) — there is no listed
+// price or checkout flow for it. ALL_SCREENS/STAFF_ROLES-style "every
+// tier gets a row" doesn't apply here: TIER_LIMITS (billing.constants.ts)
+// is the single source of truth for what each tier actually includes.
+enum SubscriptionTier {
+  BASIC
+  STARTER
+  PLUS
+  PLUS_PLUS
+  PRO
+  GROWTH
+  GROWTH_PLUS
+  SCALE
+  ENTERPRISE
+}
+
+// Where an org's subscription currently stands. TRIALING and ACTIVE are
+// both "in good standing" (full access per the org's tier); PAST_DUE is
+// a grace window after a failed/missed renewal charge; EXPIRED is the
+// trial or grace period having run out with no successful payment —
+// this is what the login-time expiry check and the immediate "your
+// subscription has run out" popup key off (see auth.service.ts's /login
+// response and the frontend's billing-guard interceptor). CANCELLED is
+// an org that explicitly won't renew (still honors currentPeriodEnd,
+// then becomes EXPIRED).
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum BillingCycle {
+  MONTHLY
+  ANNUAL
+}
+
+// Whether a SubscriptionEvent row represents something that worked,
+// something that failed, or just an informational note (e.g. a
+// cancellation, or a checkout being started before its outcome is
+// known yet) — lets the billing history UI badge rows without having
+// to parse eventType strings itself.
+enum SubscriptionEventOutcome {
+  SUCCESS
+  FAILED
+  INFO
+}
+
+// Where a SubscriptionEvent came from — WEBHOOK (Cashfree pushed it),
+// SYNC (BillingService.syncFromCashfree pulled it), or CHECKOUT (this
+// API itself, right when a checkout is started/fails to even reach
+// Cashfree). Deliberately has NO "test"/"reset" value — resetToTrial
+// is purely a testing tool and never writes to this table at all, so
+// this history stays invoice/audit-grade real activity only.
+enum SubscriptionEventSource {
+  WEBHOOK
+  SYNC
+  CHECKOUT
+}
+
 enum BranchStatus {
   ACTIVE
   INACTIVE
@@ -118,6 +182,18 @@ enum PlanDuration {
   ANNUAL
   CLASS_PACK
   DROP_IN
+}
+
+// Personal-training duration — intentionally separate from
+// PlanDuration (membership plans don't have a HALF_YEARLY option, and
+// PT's own month-count mapping — 1/3/6/12 — is independent of
+// whatever units a membership plan happens to use). See
+// Member.ptDuration and MembersService's ptDurationMonths().
+enum PtDuration {
+  MONTHLY
+  QUARTERLY
+  HALF_YEARLY
+  YEARLY
 }
 
 // Offer types configurable per plan. Definitions only for now (same as
@@ -178,6 +254,44 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // ---- SaaS platform subscription (Organization paying FOR FitNexus
+  // itself — not the member-payment flow, which is a separate, later
+  // concern). subscriptionTier is null only for the TRIALING window
+  // before a tier is ever chosen — trial gets full access regardless
+  // (see BillingService.effectiveLimits), so the null doesn't need its
+  // own "no plan" branch anywhere caps are checked. currentPeriodEnd is
+  // what the dashboard's countdown widget and the login-time expiry
+  // check both read — it's the trial end date while TRIALING, and the
+  // paid period's renewal date once a subscription starts.
+  subscriptionTier   SubscriptionTier?
+  subscriptionStatus SubscriptionStatus @default(TRIALING)
+  billingCycle       BillingCycle?
+  trialEndsAt        DateTime?
+  currentPeriodEnd   DateTime?
+
+  // Cashfree's own identifiers for this org's mandate/subscription —
+  // null until they've actually gone through checkout once.
+  cashfreeCustomerId String?
+
+  // cf_subscription_id — Cashfree's own internal reference, returned
+  // from create-subscription. Looked up against THIS field when a
+  // webhook event comes in (see BillingService.handleWebhook), since
+  // that's what the webhook payload carries.
+  cashfreeSubscriptionId String? @unique
+
+  // subscription_id — the id WE generated and sent when creating the
+  // subscription (see BillingService.checkout). Cashfree's own
+  // fetch/cancel-subscription endpoints take THIS id in the URL path,
+  // not cf_subscription_id above — the two are not interchangeable
+  // (see BillingService.syncFromCashfree, which uses this one).
+  cashfreeSubscriptionRef String? @unique
+
+  // Full append-only history of every subscription/payment outcome —
+  // see SubscriptionEvent below. This is the only place that keeps
+  // anything beyond the org's current snapshot (tier/status/
+  // currentPeriodEnd above), which gets overwritten on every change.
+  subscriptionEvents SubscriptionEvent[]
+
   users                  User[]
   branches               Branch[]
   leads                  Lead[]
@@ -210,6 +324,51 @@ model Organization {
   workoutPlans   WorkoutPlan[]
 
   @@map("organizations")
+}
+
+// Append-only billing/payment history — every SubscriptionEvent row is
+// one thing that actually happened (a checkout started, a charge
+// succeeded, a charge failed, a cancellation, etc), never updated
+// after insert. This is what the Billing page's history/invoice list
+// reads from — the Organization's own subscription* fields only ever
+// hold the current snapshot, so without this table there would be no
+// way to see past activity at all. Deliberately NOT written to by the
+// test-only BillingService.resetToTrial — that stays purely a testing
+// tool and must never appear in what is otherwise an invoice/audit
+// trail of real activity.
+model SubscriptionEvent {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // The raw Cashfree event type (SUBSCRIPTION_ACTIVATED,
+  // SUBSCRIPTION_CHARGE_SUCCESS, SUBSCRIPTION_CHARGE_FAILED, …) for a
+  // WEBHOOK/SYNC-sourced row, or a synthetic one for a CHECKOUT-sourced
+  // row (CHECKOUT_STARTED / CHECKOUT_FAILED).
+  eventType String
+  outcome   SubscriptionEventOutcome
+  source    SubscriptionEventSource
+
+  // A snapshot of what this event was about — not a live reference,
+  // so it stays accurate even if the org's tier later changes again.
+  tier         SubscriptionTier?
+  billingCycle BillingCycle?
+  amountInr    Decimal?         @db.Decimal(10, 2)
+
+  // Human-readable detail — required reading for any FAILED row (the
+  // actual Cashfree error message, e.g. "plan_details.plan_max_amount
+  // : should not be empty"), optional for SUCCESS/INFO rows.
+  description String?
+
+  // The full raw webhook/API payload, kept for debugging — Cashfree's
+  // exact response shapes have repeatedly needed verifying against
+  // their live docs during this integration.
+  rawPayload Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@map("subscription_events")
 }
 
 model Branch {
@@ -418,6 +577,50 @@ model Member {
   // Snapshot of what was actually charged — see the doc comment above.
   price Decimal @db.Decimal(10, 2)
 
+  // Partial-payment support (single split, not installments) — how
+  // much of `price` has actually been collected so far. Nullable
+  // rather than defaulted to `price`, so the migration doesn't have
+  // to guess a value for every pre-existing row: null is treated
+  // everywhere in the app as "fully paid" (balance 0), same as every
+  // member before this feature existed. MembersService.create always
+  // sets it explicitly going forward (to `price` for a normal
+  // full-payment signup, or less for a partial one). balanceDue is
+  // always derived as price - (amountPaid ?? price), never stored
+  // separately. paymentFollowUpDate is the one reminder date for
+  // collecting the rest — cleared once the balance reaches 0. The two
+  // notify flags control who NotificationsCronService's
+  // payment-reminder sweep WhatsApps on that date (member, gym owner,
+  // both, or neither if both are false).
+  amountPaid               Decimal?  @db.Decimal(10, 2)
+  paymentFollowUpDate      DateTime?
+  notifyMemberOnPaymentDue Boolean   @default(true)
+  notifyGymOnPaymentDue    Boolean   @default(true)
+
+  // Personal Training — optional add-on, toggled on the Membership
+  // wizard step (requires assignedTrainerEmployeeId to also be set —
+  // enforced in MembersService, not here) with its own duration/rate/
+  // dates entered on the Payment step. Deliberately NOT tied to
+  // Offer/PlanDuration — see PtDuration's doc comment — and never
+  // discounted by a membership Offer (offers only ever adjust the
+  // membership's own price/duration, per product decision). ptEndDate
+  // is computed (ptStartDate + ptDuration's months), never typed
+  // directly, same pattern as Member.endDate; it must fall on or
+  // before the membership's own endDate (validated in MembersService).
+  // ptTotal is a snapshot (ptRatePerMonth × duration months) that
+  // folds into the same combined price/amountPaid/balance the
+  // membership itself uses (see MembersService.create/update), but is
+  // always itemized as its own line, separate from the membership
+  // price, in both the WhatsApp invoice text and the invoice PDF.
+  // Treated as expired purely by date (ptEndDate in the past) — no
+  // cron flips a status, nothing here gets cleared automatically, so
+  // a member's PT history stays intact after it lapses.
+  hasPersonalTrainer Boolean     @default(false)
+  ptDuration         PtDuration?
+  ptRatePerMonth     Decimal?    @db.Decimal(10, 2)
+  ptStartDate        DateTime?
+  ptEndDate          DateTime?
+  ptTotal            Decimal?    @db.Decimal(10, 2)
+
   status MemberStatus @default(ACTIVE)
 
   // Set only on the secondary member of a COUPLE-offer pairing; points
@@ -440,6 +643,7 @@ model Member {
   goalWeightKg Decimal?  @db.Decimal(5, 2)
 
   metricEntries        MemberMetricEntry[]
+  payments             MemberPayment[]
   biometricEnrollments BiometricEnrollment[]
   attendancePunches    AttendancePunch[]
 
@@ -450,6 +654,11 @@ model Member {
   // "my plans" page — distinct from FormShareLink's single-use tokens,
   // since the diet/workout page is meant to be bookmarked and revisited.
   publicAccess   MemberPublicAccess?
+  // Separate persistent token just for the invoice PDF link — kept
+  // apart from publicAccess above so a leaked invoice link can't also
+  // be used to reach this member's fitness page (see
+  // MemberInvoiceAccess's doc comment).
+  invoiceAccess  MemberInvoiceAccess?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -474,10 +683,18 @@ model MemberMetricEntry {
 
   recordedAt DateTime @default(now())
 
-  weightKg Decimal  @db.Decimal(5, 2)
-  chestCm  Decimal? @db.Decimal(5, 2)
-  waistCm  Decimal? @db.Decimal(5, 2)
-  hipsCm   Decimal? @db.Decimal(5, 2)
+  weightKg   Decimal  @db.Decimal(5, 2)
+  chestCm    Decimal? @db.Decimal(5, 2)
+  waistCm    Decimal? @db.Decimal(5, 2)
+  hipsCm     Decimal? @db.Decimal(5, 2)
+  // Added alongside chest/waist/hips — full-body tape measurements
+  // (arms = biceps, thigh = upper leg, calf = lower leg, shoulders)
+  // for a more complete muscle-measurement check-in, same optional/
+  // frozen-at-creation treatment as the original three.
+  armsCm      Decimal? @db.Decimal(5, 2)
+  thighCm     Decimal? @db.Decimal(5, 2)
+  calfCm      Decimal? @db.Decimal(5, 2)
+  shouldersCm Decimal? @db.Decimal(5, 2)
 
   bmi       Decimal @db.Decimal(4, 1)
   bmiStatus String
@@ -492,6 +709,47 @@ model MemberMetricEntry {
 
   @@index([memberId, recordedAt])
   @@map("member_metric_entries")
+}
+
+// One row per actual payment received from a member — the initial
+// checkout payment (full or partial), and optionally one more row when
+// a remaining balance is later settled (see Member.amountPaid's doc
+// comment — single split, not installments, so a member has at most
+// two of these). Both the WhatsApp invoice text (buildInvoiceMessage)
+// and the downloadable PDF invoice (InvoicePdfService) render from
+// this same ledger, so they never disagree with each other.
+model MemberPayment {
+  id       String @id @default(cuid())
+  memberId String
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  amount Decimal  @db.Decimal(10, 2)
+  paidAt DateTime @default(now())
+  note   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([memberId, paidAt])
+  @@map("member_payments")
+}
+
+// Dedicated public-access token for a member's downloadable invoice
+// PDF — deliberately its OWN table rather than reusing
+// MemberPublicAccess (the member's diet/workout public-page token).
+// A leaked invoice link (forwarded in a chat, left in browser history
+// on a shared phone) should only ever expose that one PDF, never also
+// grant access to the member's fitness plan page — keeping the two
+// tokens separate caps the blast radius of either one leaking.
+model MemberInvoiceAccess {
+  id       String @id @default(cuid())
+  memberId String @unique
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  token String @unique
+
+  createdAt DateTime @default(now())
+
+  @@map("member_invoice_access")
 }
 
 model Lead {
@@ -969,6 +1227,21 @@ enum NotificationType {
   BIRTHDAY_EMPLOYEE
   BIRTHDAY_MEMBER
   MEMBERSHIP_EXPIRY
+  // One-time nudge to the org OWNER that a member's Personal Training
+  // term is ending soon — unlike MEMBERSHIP_EXPIRY (which reaches the
+  // member directly), this is staff-facing only, since renewing PT is
+  // a sales/upsell action the gym does, not something the member signs
+  // up for on their own. See NotificationsCronService.checkPtExpiry.
+  PT_EXPIRY
+  // Daily renewal nudge to the org OWNER for as long as the org stays
+  // hard-locked-out after its trial/paid period has run out — see
+  // NotificationsCronService.checkSubscriptionLockedReminder. This is
+  // the ONE notification type that keeps firing while an org is
+  // locked out; every other type is suppressed for a locked-out org
+  // (see NotificationsCronService.getLockedOutOrganizationIds), since
+  // reminding someone to renew their membership at a gym whose
+  // software doesn't work right now is pointless noise.
+  SUBSCRIPTION_LOCKED
 }
 
 enum NotificationSeverity {

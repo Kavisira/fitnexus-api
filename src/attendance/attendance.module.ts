@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { RolesModule } from '../roles/roles.module';
+import { BillingModule } from '../billing/billing.module';
 import { AttendanceController } from './attendance.controller';
 import { AttendanceService } from './attendance.service';
 import { AttendanceDevicesService } from './attendance-devices.service';
@@ -9,7 +10,7 @@ import { AttendanceIngestService } from './attendance-ingest.service';
 import { AttendanceAggregationCronService } from './attendance-aggregation.cron';
 
 @Module({
-  imports: [AuthModule, RolesModule],
+  imports: [AuthModule, RolesModule, BillingModule],
   controllers: [AttendanceController, AttendanceIngestController],
   providers: [AttendanceService, AttendanceDevicesService, AttendanceIngestService, AttendanceAggregationCronService],
   exports: [AttendanceService],

@@ -23,6 +23,13 @@ interface SendTemplateOptions {
    * button parameter, since the button is what makes the code
    * tappable-to-copy. Leave unset for templates with no button. */
   buttonCode?: string;
+  /** Set for templates with a DOCUMENT header (e.g. payment_invoice_pdf).
+   * Prefer `id` (a media id from uploadMedia — the actual file bytes
+   * uploaded directly to WhatsApp, no URL involved at all) over `link`
+   * (Meta fetches the file server-to-server, which requires our API to
+   * be reachable from Meta's servers and silently fails otherwise).
+   * Leave unset for templates with no document header. */
+  headerDocument?: { id?: string; link?: string; filename?: string };
 }
 
 /**
@@ -87,6 +94,9 @@ export class WhatsappService {
   }
 
   async sendTemplate(options: SendTemplateOptions): Promise<void> {
+    this.logger.log(
+      `[INVOICE DEBUG] sendTemplate called: template=${options.template}, to=${options.to}, configured=${!!this.accessToken && !!this.phoneNumberId}`,
+    );
     if (!this.accessToken || !this.phoneNumberId) {
       this.logger.log(`[WhatsApp skipped — not configured] would send "${options.template}" to ${options.to}`);
       return;
@@ -102,6 +112,20 @@ export class WhatsappService {
     // the button is a separate component from the body text that
     // contains it, and Meta requires both.
     const components: Record<string, unknown>[] = [];
+    if (options.headerDocument) {
+      components.push({
+        type: 'header',
+        parameters: [
+          {
+            type: 'document',
+            document: {
+              ...(options.headerDocument.id ? { id: options.headerDocument.id } : { link: options.headerDocument.link }),
+              filename: options.headerDocument.filename ?? 'invoice.pdf',
+            },
+          },
+        ],
+      });
+    }
     if (params.length) {
       components.push({
         type: 'body',
@@ -142,6 +166,9 @@ export class WhatsappService {
       if (!response.ok) {
         const body = await response.text().catch(() => '');
         this.logger.error(`WhatsApp send failed (${response.status}) for ${phone}/${options.template}: ${body}`);
+      } else {
+        const body = await response.text().catch(() => '');
+        this.logger.log(`[INVOICE DEBUG] WhatsApp send accepted (${response.status}) for ${phone}/${options.template}: ${body}`);
       }
     } catch (err) {
       this.logger.error(`WhatsApp send threw for ${phone}/${options.template}: ${(err as Error).message}`);
@@ -267,5 +294,67 @@ export class WhatsappService {
   async sendFormLink(phone: string, _memberName: string, formName: string, url: string): Promise<void> {
     const template = this.config.get<string>('WHATSAPP_TEMPLATE_FORM_LINK') ?? 'form_link_share';
     await this.sendTemplate({ to: phone, template, params: [formName, url] });
+  }
+
+  /** Uploads a file's raw bytes directly to WhatsApp (Meta's Media
+   * endpoint) and returns the resulting media id, for use as a
+   * `headerDocument.id` in sendTemplate — the file is attached
+   * natively, no URL/fetch involved on Meta's side at all. Returns
+   * undefined (logged) on any failure so callers can fail soft. */
+  private async uploadMedia(buffer: Buffer, filename: string, mimeType: string): Promise<string | undefined> {
+    if (!this.accessToken || !this.phoneNumberId) {
+      return undefined;
+    }
+    try {
+      const form = new FormData();
+      form.append('messaging_product', 'whatsapp');
+      form.append('file', new Blob([new Uint8Array(buffer)], { type: mimeType }), filename);
+      const response = await fetch(`https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        body: form,
+      });
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        this.logger.error(`WhatsApp media upload failed (${response.status}): ${body}`);
+        return undefined;
+      }
+      const json = (await response.json()) as { id?: string };
+      if (!json.id) {
+        this.logger.error(`WhatsApp media upload returned no id: ${JSON.stringify(json)}`);
+      }
+      return json.id;
+    } catch (err) {
+      this.logger.error(`WhatsApp media upload threw: ${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
+  /** Payment invoice, delivered as a native PDF attachment — the PDF's
+   * actual bytes are uploaded to WhatsApp first (uploadMedia) and the
+   * resulting media id is sent as the template's Document header, so
+   * there's no URL for Meta to fetch and nothing for the member to
+   * click; they just receive the file like any other WhatsApp
+   * attachment. Requires the approved "payment_invoice_pdf" template
+   * (Document header, body "Hi {{1}}, here is your payment invoice for
+   * FitNexus. Thank you!"). Override the template name via
+   * WHATSAPP_TEMPLATE_INVOICE_PDF if yours differs. */
+  async sendInvoicePdf(phone: string, memberName: string, pdfBuffer: Buffer, filename: string): Promise<void> {
+    const template = this.config.get<string>('WHATSAPP_TEMPLATE_INVOICE_PDF') ?? 'payment_invoice_pdf';
+    if (!this.accessToken || !this.phoneNumberId) {
+      this.logger.log(`[WhatsApp skipped — not configured] would send "${template}" (PDF) to ${phone}`);
+      return;
+    }
+    const mediaId = await this.uploadMedia(pdfBuffer, filename, 'application/pdf');
+    if (!mediaId) {
+      this.logger.error(`Skipping invoice PDF WhatsApp send to ${phone} — media upload failed`);
+      return;
+    }
+    await this.sendTemplate({
+      to: phone,
+      template,
+      params: [memberName],
+      headerDocument: { id: mediaId, filename },
+    });
   }
 }

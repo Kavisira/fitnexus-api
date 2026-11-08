@@ -17,6 +17,11 @@ const DEFAULT_CONFIG: Record<NotificationType, { enabled: boolean; severity: Not
   BIRTHDAY_EMPLOYEE: { enabled: false, severity: 'INFO' },
   BIRTHDAY_MEMBER: { enabled: false, severity: 'INFO' },
   MEMBERSHIP_EXPIRY: { enabled: false, severity: 'WARNING' },
+  PT_EXPIRY: { enabled: false, severity: 'WARNING' },
+  // On by default (unlike the opt-in types above) — this is the core
+  // "please renew" nudge for the hard-lockout policy, not an optional
+  // extra an owner has to discover and turn on themselves.
+  SUBSCRIPTION_LOCKED: { enabled: true, severity: 'URGENT' },
 };
 
 export interface NotifyInput {
