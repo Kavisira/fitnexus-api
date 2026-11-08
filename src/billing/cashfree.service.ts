@@ -93,6 +93,8 @@ export class CashfreeService {
       body: JSON.stringify(body),
     });
     const data = await res.json();
+    // TEMP DIAGNOSTIC — see the matching comment in getSubscription.
+    this.logger.log(`Cashfree createSubscription raw response: ${JSON.stringify(data)}`);
     if (!res.ok) {
       this.logger.error(`Cashfree createSubscription failed (${res.status}): ${JSON.stringify(data)}`);
       throw new Error(data?.message ?? 'Cashfree subscription creation failed.');
@@ -113,6 +115,13 @@ export class CashfreeService {
       headers: this.headers,
     });
     const data = await res.json();
+    // TEMP DIAGNOSTIC — logs Cashfree's full raw response every time,
+    // not just on failure, so the exact shape/status they return after
+    // a sandbox "simulate success/failure" is visible without needing
+    // to add print statements each time something looks off. Safe to
+    // remove once the real subscription_status values seen in sandbox
+    // are confirmed and handled in BillingService.syncFromCashfree.
+    this.logger.log(`Cashfree getSubscription(${cfSubscriptionId}) raw response: ${JSON.stringify(data)}`);
     if (!res.ok) {
       this.logger.error(`Cashfree getSubscription failed (${res.status}): ${JSON.stringify(data)}`);
       throw new Error(data?.message ?? 'Could not fetch Cashfree subscription.');

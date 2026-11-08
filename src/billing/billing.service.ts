@@ -261,17 +261,55 @@ export class BillingService {
       return;
     }
     try {
-      const org = await this.prisma.organization.findFirst({ where: { cashfreeSubscriptionId: params.cfSubscriptionId } });
+      // BUG FIX: Cashfree's checkout-return redirect names this field
+      // `cf_subscriptionId`, but it's actually OUR OWN merchant
+      // subscription_id (what we store as cashfreeSubscriptionRef) —
+      // their own numeric cf_subscription_id comes back separately as
+      // `cf_subReferenceId` on this exact redirect (confusingly the
+      // OPPOSITE naming from their webhook/API payloads, where
+      // cf_subscription_id really is their own numeric id — see
+      // handleWebhook above, which looks that one up correctly).
+      // Looking this up against cashfreeSubscriptionId (as this used
+      // to) never matched anything, so this whole method silently
+      // no-op'd for every single checkout, success or failure.
+      const org = await this.prisma.organization.findFirst({ where: { cashfreeSubscriptionRef: params.cfSubscriptionId } });
       if (!org) {
         return;
       }
-      // Only the failure case is logged here — a SUCCESS case is
-      // already covered (and will be deduped/transitioned correctly)
-      // by the frontend's immediate sync() call right after this
-      // redirect lands, which has the full subscription state to work
-      // from rather than just a status string.
-      const failed = !['SUCCESS', 'SUCCESS_DEBIT_PENDING', 'SUCCESS_TOKENIZATION_PENDING'].includes(params.checkoutStatus);
-      if (failed) {
+
+      const succeeded = ['SUCCESS', 'SUCCESS_DEBIT_PENDING', 'SUCCESS_TOKENIZATION_PENDING'].includes(params.checkoutStatus);
+
+      if (succeeded) {
+        // Activate the plan RIGHT HERE rather than waiting on sync()'s
+        // own GET /subscriptions/{id} call — in sandbox that GET can
+        // still report a stale pre-authorization status (INITIALIZED)
+        // for a few seconds after Cashfree's own redirect has already
+        // confirmed the mandate succeeded, which is what made "payment
+        // succeeded but the plan never updated" reproducible every
+        // time. Cashfree's redirect itself (checkoutStatus/this
+        // method) is the authoritative, immediate signal for mandate
+        // success — sync()/the webhook remain the source of truth for
+        // everything AFTER this (renewals, cancellations), but the
+        // very first activation shouldn't have to wait for either.
+        // tier/billingCycle come from this org's own CHECKOUT_STARTED
+        // event (recorded a moment ago in checkout()) rather than
+        // Cashfree's plan_name, which isn't present on this redirect
+        // at all.
+        const lastCheckout = await this.prisma.subscriptionEvent.findFirst({
+          where: { organizationId: org.id, eventType: 'CHECKOUT_STARTED' },
+          orderBy: { createdAt: 'desc' },
+        });
+        const intervalType = lastCheckout?.billingCycle === 'ANNUAL' ? 'YEAR' : 'MONTH';
+        await this.applyActivation(
+          org.id,
+          undefined,
+          intervalType,
+          SubscriptionEventSource.CHECKOUT,
+          'RETURN_SUCCESS',
+          params.raw,
+          lastCheckout?.tier ?? org.subscriptionTier ?? null,
+        );
+      } else {
         await this.recordEvent(org.id, {
           eventType: 'CHECKOUT_RETURN_FAILED',
           outcome: SubscriptionEventOutcome.FAILED,
@@ -400,11 +438,14 @@ export class BillingService {
       where: { id: organizationId },
       select: { cashfreeSubscriptionRef: true },
     });
+    this.logger.log(`syncFromCashfree: org ${organizationId} has cashfreeSubscriptionRef = ${org?.cashfreeSubscriptionRef ?? '(none)'}`);
     if (!org?.cashfreeSubscriptionRef) {
+      this.logger.warn(`syncFromCashfree: org ${organizationId} has no cashfreeSubscriptionRef at all — nothing to sync, leaving as-is.`);
       return toSubscriptionSummary(await this.ensureTrialStarted(organizationId));
     }
 
     const remote = await this.cashfree.getSubscription(org.cashfreeSubscriptionRef);
+    this.logger.log(`syncFromCashfree: Cashfree returned subscription_status = "${remote?.subscription_status}" for ${org.cashfreeSubscriptionRef}`);
     const status: string = remote?.subscription_status ?? '';
     if (status === 'ACTIVE') {
       await this.applyActivation(
@@ -419,10 +460,37 @@ export class BillingService {
       await this.applyCancellation(organizationId, `SYNC_${status}`, SubscriptionEventSource.SYNC, remote);
     } else if (status === 'ON_HOLD' || status === 'PAUSED') {
       await this.applyFailure(organizationId, `SYNC_${status}`, SubscriptionEventSource.SYNC, remote);
+    } else {
+      // Any other status (INITIALIZED, BANK_APPROVAL_PENDING, …) means
+      // the mandate isn't actually confirmed ACTIVE yet by Cashfree's
+      // own record — left exactly as-is rather than guessing. Recorded
+      // as its OWN visible history row (not just a server log) because
+      // this is the #1 place "I paid but the plan never updated" turns
+      // out to be a genuine, not-yet-ACTIVE status on Cashfree's own
+      // side rather than a bug here — surfacing the real status value
+      // directly in the Owner's own History panel means they don't
+      // need server/terminal access to see why. Deduped per distinct
+      // status (groupKey-less recordEvent would otherwise spam one
+      // row per sync() call/page reload while stuck in this state).
+      const alreadyLogged = await this.prisma.subscriptionEvent.findFirst({
+        where: { organizationId, eventType: `SYNC_PENDING_${status || 'UNKNOWN'}` },
+      });
+      if (!alreadyLogged) {
+        await this.recordEvent(organizationId, {
+          eventType: `SYNC_PENDING_${status || 'UNKNOWN'}`,
+          outcome: SubscriptionEventOutcome.INFO,
+          source: SubscriptionEventSource.SYNC,
+          tier: null,
+          billingCycle: null,
+          amountInr: null,
+          description: `Cashfree reports this subscription's status as "${status || '(empty)'}" — not yet ACTIVE, so your plan hasn't changed. This usually means the mandate was approved but Cashfree hasn't posted the first charge yet; check the subscription in your Cashfree dashboard.`,
+          rawPayload: remote,
+        });
+      }
+      this.logger.warn(
+        `syncFromCashfree: org ${organizationId}'s subscription ${org.cashfreeSubscriptionRef} is "${status || '(empty)'}" on Cashfree — not ACTIVE/CANCELLED/ON_HOLD, so nothing was changed.`,
+      );
     }
-    // Any other status (INITIALIZED, BANK_APPROVAL_PENDING, …) means
-    // the mandate isn't actually confirmed yet — leave the org exactly
-    // as it is rather than guessing.
 
     const refreshed = await this.ensureTrialStarted(organizationId);
     return toSubscriptionSummary(refreshed);
@@ -445,6 +513,12 @@ export class BillingService {
     source: SubscriptionEventSource,
     eventType: string,
     rawPayload?: unknown,
+    // Set when the caller already knows the tier directly (e.g.
+    // recordReturnOutcome, reading it off this org's own
+    // CHECKOUT_STARTED event) rather than needing it parsed back out
+    // of a Cashfree plan_name string — skips tierFromPlanName entirely
+    // when present.
+    knownTier?: SubscriptionTier | null,
   ) {
     const prior = await this.prisma.organization.findUnique({
       where: { id: organizationId },
@@ -452,7 +526,7 @@ export class BillingService {
     });
 
     const periodDays = intervalType === 'YEAR' ? 365 : 30;
-    const tier = this.tierFromPlanName(planName) ?? prior?.subscriptionTier ?? null;
+    const tier = knownTier ?? this.tierFromPlanName(planName) ?? prior?.subscriptionTier ?? null;
     const billingCycle: BillingCycle = intervalType === 'YEAR' ? 'ANNUAL' : 'MONTHLY';
     const currentPeriodEnd = new Date(Date.now() + periodDays * 24 * 60 * 60 * 1000);
 

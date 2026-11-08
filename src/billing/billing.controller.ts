@@ -85,6 +85,12 @@ export class BillingController {
   // fields are absent (documented as possible in production).
   private async captureReturnOutcome(req: Request): Promise<void> {
     const params: Record<string, unknown> = { ...req.query, ...(req.body ?? {}) };
+    // TEMP DIAGNOSTIC — exactly what Cashfree itself sent on the
+    // checkout-return redirect (query params merged with any form body),
+    // BEFORE this API does anything with it. Safe to remove once the
+    // real field values/shape seen in sandbox are confirmed.
+    // eslint-disable-next-line no-console
+    console.log('[CASHFREE RETURN] raw params from Cashfree:', JSON.stringify(params));
     await this.billingService.recordReturnOutcome({
       cfSubscriptionId: (params['cf_subscriptionId'] as string) ?? undefined,
       checkoutStatus: (params['cf_checkoutStatus'] as string) ?? undefined,
