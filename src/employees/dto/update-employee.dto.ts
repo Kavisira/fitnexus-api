@@ -1,4 +1,4 @@
-import { IsArray, IsDateString, IsEmail, IsIn, IsNumberString, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsNumberString, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SalaryComponentDto } from './salary-component.dto';
 
@@ -58,4 +58,16 @@ export class UpdateEmployeeDto {
   @ValidateNested({ each: true })
   @Type(() => SalaryComponentDto)
   components?: SalaryComponentDto[];
+
+  // Set true only on a RETRY after the first attempt came back 409
+  // LOGIN_CREDENTIALS_AFFECTED — see EmployeesService.update. Changing
+  // name/dateOfBirth/phone for an employee that already has a login
+  // regenerates that login's username and/or password, so the caller
+  // has to explicitly confirm it first; this flag is how that
+  // confirmation is carried on the retry. Never set true blindly on a
+  // normal edit — the frontend only sets it after the admin has
+  // actually seen and accepted the warning.
+  @IsOptional()
+  @IsBoolean()
+  confirmCredentialRegeneration?: boolean;
 }

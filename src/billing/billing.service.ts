@@ -8,9 +8,11 @@ import {
   TIER_LIMITS,
   TIER_MONTHLY_PRICE_INR,
   TRIAL_DAYS,
-  TRIAL_LIMITS,
   TierLimits,
+  UsageCounts,
   annualPriceInr,
+  minEligibleTier,
+  tierSatisfiesUsage,
   toSubscriptionSummary,
 } from './billing.constants';
 import { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -34,26 +36,84 @@ export class BillingService {
     private config: ConfigService,
   ) {}
 
-  /** The caps/features this org actually has right now — full
-   * (Scale-equivalent) access while TRIALING, otherwise whatever its
-   * paid tier grants. Every branch/member-creation check and the
+  /** The caps/features this org actually has right now — whatever its
+   * selected tier grants, TRIALING or paid alike. A trial is scoped to
+   * the tier chosen at signup (or switched to since, via
+   * selectTrialPlan), not a separate "full access" state — see
+   * AuthService.register for where subscriptionTier first gets set.
+   * Every branch/member/employee-creation check and the
    * biometric-attendance gate should read from this, not TIER_LIMITS
    * directly. */
   async effectiveLimits(organizationId: string): Promise<TierLimits> {
     const org = await this.prisma.organization.findUnique({
       where: { id: organizationId },
-      select: { subscriptionStatus: true, subscriptionTier: true },
+      select: { subscriptionTier: true },
     });
     if (!org) {
       throw new BadRequestException('Organization not found.');
     }
-    if (org.subscriptionStatus === 'TRIALING') {
-      return TRIAL_LIMITS;
+    // subscriptionTier is only ever null for a handful of rows seeded
+    // before this column existed/was required — fall back to the
+    // most restrictive tier rather than guessing generous.
+    return TIER_LIMITS[org.subscriptionTier ?? 'STARTER'];
+  }
+
+  /** This org's current footprint against the three numeric caps, plus
+   * whether it's actively using the one feature flag (biometric
+   * attendance) — the shape tierSatisfiesUsage/minEligibleTier expect.
+   * Used by eligibleTiers (trial-plan-switch screen) and by checkout
+   * (so a target tier can never be picked that doesn't actually cover
+   * what the org already has). */
+  async usageCounts(organizationId: string): Promise<UsageCounts> {
+    const [branches, members, employees, biometricDevice] = await Promise.all([
+      this.prisma.branch.count({ where: { organizationId } }),
+      this.prisma.member.count({ where: { organizationId } }),
+      this.prisma.employee.count({ where: { organizationId } }),
+      this.prisma.biometricDevice.findFirst({ where: { organizationId }, select: { id: true } }),
+    ]);
+    return { branches, members, employees, usesBiometric: !!biometricDevice };
+  }
+
+  /** Every self-serve tier, each flagged with whether it currently
+   * fits this org's usage — drives the signup/trial-plan-switch
+   * screen's "this plan is too small for what you already have"
+   * disabling, described in SELF_SERVE_TIER_ORDER's doc comment. */
+  async eligibleTiers(organizationId: string) {
+    const usage = await this.usageCounts(organizationId);
+    return SELF_SERVE_TIER_ORDER.map((tier) => ({
+      tier,
+      eligible: tierSatisfiesUsage(tier, usage),
+    }));
+  }
+
+  /** Lets a TRIALING org change which tier its trial is scoped to —
+   * up or down, as long as the target tier actually covers what the
+   * org already has (see tierSatisfiesUsage). This is the only place
+   * a "downgrade" is allowed at all, and only while still trialing and
+   * still free; once paying, checkout()'s upgrade-only rule takes
+   * over. */
+  async selectTrialPlan(user: AuthenticatedUser, tier: SubscriptionTier) {
+    if (tier === 'ENTERPRISE') {
+      throw new BadRequestException('Enterprise is arranged directly with us — please contact support.');
     }
-    if (!org.subscriptionTier) {
-      return TIER_LIMITS.BASIC;
+    const org = await this.prisma.organization.findUnique({ where: { id: user.organizationId } });
+    if (!org) {
+      throw new BadRequestException('Organization not found.');
     }
-    return TIER_LIMITS[org.subscriptionTier];
+    if (org.subscriptionStatus !== 'TRIALING') {
+      throw new ForbiddenException('Plan can only be changed this way during the free trial — use Upgrade afterwards.');
+    }
+    const usage = await this.usageCounts(org.id);
+    if (!tierSatisfiesUsage(tier, usage)) {
+      throw new ForbiddenException(
+        `${tier} doesn't cover what your organization already has. The smallest plan that fits is ${minEligibleTier(usage) ?? 'Enterprise (contact us)'}.`,
+      );
+    }
+    return this.prisma.organization.update({
+      where: { id: org.id },
+      data: { subscriptionTier: tier },
+      select: { subscriptionTier: true },
+    });
   }
 
   async status(user: AuthenticatedUser) {
@@ -121,12 +181,28 @@ export class BillingService {
       throw new BadRequestException('Organization not found.');
     }
 
-    if (org.subscriptionTier) {
+    // Converting a trial to a paid plan isn't an "upgrade" in the
+    // strict sense — the org is paying for whatever tier its trial is
+    // already scoped to (or one it switched up to via
+    // selectTrialPlan), so the same-tier case has to be allowed here.
+    // Once an org is actually PAYING, though, self-serve stays
+    // upgrade-only, same as before.
+    if (org.subscriptionTier && org.subscriptionStatus !== 'TRIALING') {
       const currentIdx = SELF_SERVE_TIER_ORDER.indexOf(org.subscriptionTier);
       const targetIdx = SELF_SERVE_TIER_ORDER.indexOf(tier);
       if (targetIdx <= currentIdx) {
         throw new ForbiddenException('Only upgrading to a higher tier is supported — downgrades are not available.');
       }
+    }
+
+    // Whatever tier is being paid for, it has to actually cover what
+    // the org already has — otherwise checkout would succeed into an
+    // immediately-over-the-cap state. Mirrors selectTrialPlan's check.
+    const usage = await this.usageCounts(org.id);
+    if (!tierSatisfiesUsage(tier, usage)) {
+      throw new ForbiddenException(
+        `${tier} doesn't cover what your organization already has. The smallest plan that fits is ${minEligibleTier(usage) ?? 'Enterprise (contact us)'}.`,
+      );
     }
 
     const monthly = TIER_MONTHLY_PRICE_INR[tier];
@@ -775,7 +851,10 @@ export class BillingService {
       where: { id: user.organizationId },
       data: {
         subscriptionStatus: 'TRIALING',
-        subscriptionTier: null,
+        // Keep whatever tier the org already has rather than nulling
+        // it out — trial is now scoped to a tier (see effectiveLimits),
+        // so resetting to trial should put the org back on the SAME
+        // tier's limits, not silently drop it to the STARTER fallback.
         billingCycle: null,
         trialEndsAt,
         currentPeriodEnd: trialEndsAt,

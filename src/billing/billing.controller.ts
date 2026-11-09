@@ -3,7 +3,9 @@ import { Request, Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../auth/decorators/current-user.decorator';
 import { BillingService } from './billing.service';
+import { SubscriptionTier } from '@prisma/client';
 import { CheckoutDto } from './dto/checkout.dto';
+import { SelectTrialPlanDto } from './dto/select-trial-plan.dto';
 
 @Controller('billing')
 export class BillingController {
@@ -13,6 +15,26 @@ export class BillingController {
   @UseGuards(JwtAuthGuard)
   status(@CurrentUser() user: AuthenticatedUser) {
     return this.billingService.status(user);
+  }
+
+  // Which self-serve tiers actually fit this org's current usage —
+  // drives the "this plan is too small for what you already have"
+  // disabling on the trial-plan-switch screen (and the signup plan
+  // picker, for a brand-new org with zero usage, where every tier is
+  // eligible).
+  @Get('eligible-tiers')
+  @UseGuards(JwtAuthGuard)
+  eligibleTiers(@CurrentUser() user: AuthenticatedUser) {
+    return this.billingService.eligibleTiers(user.organizationId);
+  }
+
+  // Changes which tier a TRIALING org's trial is scoped to — see
+  // BillingService.selectTrialPlan. Once the org is actually paying,
+  // this 403s and /billing/checkout (upgrade-only) is the only path.
+  @Post('select-trial-plan')
+  @UseGuards(JwtAuthGuard)
+  selectTrialPlan(@CurrentUser() user: AuthenticatedUser, @Body() dto: SelectTrialPlanDto) {
+    return this.billingService.selectTrialPlan(user, dto.tier as SubscriptionTier);
   }
 
   @Get('history')

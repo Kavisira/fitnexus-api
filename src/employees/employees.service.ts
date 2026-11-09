@@ -4,6 +4,7 @@ import { Prisma, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RolesService } from '../roles/roles.service';
+import { BillingService } from '../billing/billing.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { CreateEmployeeActivityDto } from './dto/create-employee-activity.dto';
@@ -53,6 +54,7 @@ export class EmployeesService {
     private prisma: PrismaService,
     private rolesService: RolesService,
     private config: ConfigService,
+    private billingService: BillingService,
   ) {}
 
   /** Same fallback chain as JwtStrategy — reuses JWT_SECRET rather than
@@ -97,6 +99,16 @@ export class EmployeesService {
 
   async create(organizationId: string, dto: CreateEmployeeDto) {
     await this.assertBranchInOrg(organizationId, dto.branchId);
+
+    // Employee records are plan-gated the same way branches/members
+    // already are (see BranchesService.create, MembersService.create)
+    // — counts every employee record regardless of status or whether
+    // it has a login, same "simple count" rule used everywhere else.
+    const existingCount = await this.prisma.employee.count({ where: { organizationId } });
+    const limits = await this.billingService.effectiveLimits(organizationId);
+    if (existingCount >= limits.maxEmployees) {
+      throw new ForbiddenException(`Your current plan allows up to ${limits.maxEmployees} employees. Upgrade to add more.`);
+    }
 
     if (dto.createLogin && !dto.dateOfBirth) {
       throw new BadRequestException('Date of birth is required to create a login.');
@@ -327,7 +339,10 @@ export class EmployeesService {
   }
 
   async update(organizationId: string, id: string, dto: UpdateEmployeeDto) {
-    const employee = await this.prisma.employee.findFirst({ where: { id, organizationId } });
+    const employee = await this.prisma.employee.findFirst({
+      where: { id, organizationId },
+      include: { user: true, organization: { select: { name: true } } },
+    });
     if (!employee) {
       throw new NotFoundException('Employee not found.');
     }
@@ -340,7 +355,88 @@ export class EmployeesService {
       await this.ensureJobTitle(organizationId, dto.role);
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    // ---- Login credential regeneration — see the wizard design doc
+    // comment above createLoginForEmployee for the product reasoning.
+    // Name/date-of-birth feed the auto-generated username; phone feeds
+    // the auto-generated password (see employee-login.util.ts) — but
+    // only at the moment a login is FIRST created. Nothing kept them
+    // in sync after that, so editing any of the three for an employee
+    // who already has a login silently left their username/password
+    // pointing at stale values. This block detects exactly that case
+    // and, rather than regenerating silently, requires the caller to
+    // have already confirmed it (dto.confirmCredentialRegeneration) —
+    // the frontend shows a blocking confirm dialog and retries with
+    // that flag set once the admin accepts; declining blocks the WHOLE
+    // save (nothing here, nothing else in this dto, commits) so there
+    // is never a half-applied edit.
+    const nameChanged = dto.name !== undefined && dto.name !== employee.name;
+    const dobChanged =
+      dto.dateOfBirth !== undefined &&
+      (dto.dateOfBirth ? new Date(dto.dateOfBirth).getTime() : null) !== (employee.dateOfBirth?.getTime() ?? null);
+    const phoneChanged = dto.phone !== undefined && dto.phone !== employee.phone;
+    const nameOrDobChanged = nameChanged || dobChanged;
+
+    let regeneratedLogin: { username: string; password: string | null } | null = null;
+
+    if (employee.user && (nameOrDobChanged || phoneChanged)) {
+      if (!dto.confirmCredentialRegeneration) {
+        throw new ConflictException({
+          message:
+            "Changing this employee's name, date of birth, or phone will regenerate their login credentials. Confirm to proceed.",
+          code: 'LOGIN_CREDENTIALS_AFFECTED',
+          fields: [...(nameOrDobChanged ? ['name', 'dateOfBirth'] : []), ...(phoneChanged ? ['phone'] : [])].filter(
+            (f, i, arr) => arr.indexOf(f) === i,
+          ),
+        });
+      }
+
+      const userUpdates: Prisma.UserUpdateInput = {};
+      let newUsername = employee.user.email;
+      let newPlainPassword: string | null = null;
+
+      if (nameOrDobChanged) {
+        const newDob = dto.dateOfBirth === undefined ? employee.dateOfBirth : dto.dateOfBirth ? new Date(dto.dateOfBirth) : null;
+        if (!newDob) {
+          throw new BadRequestException("This employee's date of birth is required to update their login.");
+        }
+        newUsername = await this.generateUniqueUsername(dto.name ?? employee.name, newDob, employee.organization.name);
+        userUpdates.email = newUsername;
+        userUpdates.name = dto.name ?? employee.name;
+      }
+
+      if (phoneChanged) {
+        const password = passwordFromPhone(dto.phone!);
+        if (!password) {
+          throw new BadRequestException('This employee has no usable phone number to generate a password from.');
+        }
+        userUpdates.password = await bcrypt.hash(password, SALT_ROUNDS);
+        userUpdates.passwordEnc = encryptSecret(password, this.encryptionSecret());
+        userUpdates.phone = password; // digits-only phone doubles as the User.phone identifier — see createLoginForEmployee.
+        newPlainPassword = password;
+      }
+
+      try {
+        await this.prisma.user.update({ where: { id: employee.user.id }, data: userUpdates });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          throw new ConflictException(
+            'Could not update this login — the new phone number is already used by another account.',
+          );
+        }
+        throw err;
+      }
+
+      // Shows the WHOLE current login, not just what changed — if
+      // only the username changed, the admin still sees the (still
+      // valid, unchanged) password alongside it rather than half a
+      // picture. Falls back to null for a pre-passwordEnc login (same
+      // caveat as getCredentials above).
+      const viewablePassword =
+        newPlainPassword ?? (employee.user.passwordEnc ? decryptSecret(employee.user.passwordEnc, this.encryptionSecret()) : null);
+      regeneratedLogin = { username: newUsername, password: viewablePassword };
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
       // dto.components undefined -> leave the existing list untouched;
       // an empty array is a deliberate "clear everything" (see the DTO
       // doc comment) — both are distinct from "field not sent" here.
@@ -368,6 +464,8 @@ export class EmployeesService {
         include: { branch: { select: BRANCH_SELECT }, salaryComponents: true },
       });
     });
+
+    return { employee: updated, login: regeneratedLogin };
   }
 
   async remove(organizationId: string, id: string) {

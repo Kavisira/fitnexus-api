@@ -68,6 +68,12 @@ export class AuthService {
             ownerName: dto.ownerName,
             email: dto.email,
             phone,
+            // No tier is chosen at signup. The org is created with
+            // subscriptionTier left unset (null); planSelectionGuard
+            // forces the first post-verification navigation to
+            // /select-plan, and only BillingService.selectTrialPlan
+            // (called from that page) ever assigns a tier, scoping the
+            // free trial to it from that point on.
             // Starts NOT_ACTIVE — flipped to ACTIVE once both the
             // email and phone OTPs are verified below.
           },

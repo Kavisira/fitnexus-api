@@ -101,13 +101,10 @@ enum OrganizationStatus {
 // tier gets a row" doesn't apply here: TIER_LIMITS (billing.constants.ts)
 // is the single source of truth for what each tier actually includes.
 enum SubscriptionTier {
-  BASIC
   STARTER
   PLUS
-  PLUS_PLUS
-  PRO
   GROWTH
-  GROWTH_PLUS
+  PRO
   SCALE
   ENTERPRISE
 }
@@ -256,13 +253,16 @@ model Organization {
 
   // ---- SaaS platform subscription (Organization paying FOR FitNexus
   // itself — not the member-payment flow, which is a separate, later
-  // concern). subscriptionTier is null only for the TRIALING window
-  // before a tier is ever chosen — trial gets full access regardless
-  // (see BillingService.effectiveLimits), so the null doesn't need its
-  // own "no plan" branch anywhere caps are checked. currentPeriodEnd is
-  // what the dashboard's countdown widget and the login-time expiry
-  // check both read — it's the trial end date while TRIALING, and the
-  // paid period's renewal date once a subscription starts.
+  // concern). subscriptionTier is chosen UP FRONT at signup (defaults
+  // to GROWTH if the signup form didn't send one) and the trial itself
+  // is scoped to that tier's limits — see BillingService.effectiveLimits,
+  // which no longer has a separate "full access while trialing" branch.
+  // It can still be null for a handful of pre-existing rows seeded
+  // before this column was required; effectiveLimits falls back to
+  // STARTER's limits in that case. currentPeriodEnd is what the
+  // dashboard's countdown widget and the login-time expiry check both
+  // read — it's the trial end date while TRIALING, and the paid
+  // period's renewal date once a subscription starts.
   subscriptionTier   SubscriptionTier?
   subscriptionStatus SubscriptionStatus @default(TRIALING)
   billingCycle       BillingCycle?

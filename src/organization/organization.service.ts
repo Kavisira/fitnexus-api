@@ -19,14 +19,36 @@ export class OrganizationService {
     private s3: S3Service,
   ) {}
 
-  /** Every logged-in user can read the org's basic identity — it's
-   * display-only (name/logo for headers, generated documents, etc.),
-   * not sensitive, same "self-service read" reasoning as Dashboard. */
+  /** Every logged-in user can read the org's full identity/
+   * subscription snapshot — it's the "click your profile" info panel
+   * (see shared/org-info-dialog on the frontend), not sensitive beyond
+   * what an Owner already sees on /billing, same "self-service read"
+   * reasoning as Dashboard. Includes a live branch count since that's
+   * the one summary figure worth showing here that isn't already a
+   * column on the row itself. */
   async mine(user: AuthenticatedUser) {
-    return this.prisma.organization.findUniqueOrThrow({
-      where: { id: user.organizationId },
-      select: { id: true, name: true, logoUrl: true },
-    });
+    const [org, branchCount] = await Promise.all([
+      this.prisma.organization.findUniqueOrThrow({
+        where: { id: user.organizationId },
+        select: {
+          id: true,
+          name: true,
+          ownerName: true,
+          email: true,
+          phone: true,
+          logoUrl: true,
+          status: true,
+          createdAt: true,
+          subscriptionTier: true,
+          subscriptionStatus: true,
+          billingCycle: true,
+          trialEndsAt: true,
+          currentPeriodEnd: true,
+        },
+      }),
+      this.prisma.branch.count({ where: { organizationId: user.organizationId } }),
+    ]);
+    return { ...org, branchCount };
   }
 
   /** Uploads (or replaces) the org's logo — reused everywhere the
