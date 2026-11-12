@@ -26,6 +26,7 @@ import { FormsModule } from './forms/forms.module';
 import { FitnessModule } from './fitness/fitness.module';
 import { BillingModule } from './billing/billing.module';
 import { SubscriptionGuard } from './billing/guards/subscription.guard';
+import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { SubscriptionGuard } from './billing/guards/subscription.guard';
     FormsModule,
     FitnessModule,
     BillingModule,
+    PlatformAdminModule,
   ],
   providers: [
     // Applied globally so EVERY route (reads included, not just

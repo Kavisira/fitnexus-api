@@ -1983,3 +1983,60 @@ model MemberPublicAccess {
 
   @@map("member_public_access")
 }
+
+// A single-tier "who runs the whole platform" identity — deliberately
+// NOT a User row (those are always scoped to one Organization) and not
+// reachable through the normal /auth/login flow. Backs the separate
+// /platform-admin/* API + the frontend's /admin-portal route, which
+// together give the FitNexus operator (not any gym owner) a
+// cross-tenant view: every organization, signup/checkout funnel, and
+// MRR — see PlatformAdminService.overview(). Expected to stay a
+// handful of rows at most (really just one, in practice).
+model PlatformAdmin {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@map("platform_admins")
+}
+
+enum PlatformExpenseCategory {
+  HOSTING
+  SERVER
+  DATABASE
+  MARKETING
+  DEVELOPMENT
+  WHATSAPP
+  PAYMENT_GATEWAY
+  OTHER
+}
+
+enum PlatformExpenseFrequency {
+  ONE_TIME
+  MONTHLY
+  ANNUAL
+}
+
+// Your own running-the-business costs (Render/Vercel/Supabase bills,
+// ad spend, a dev's one-off invoice, WhatsApp/Cashfree fees, etc.) —
+// entered by hand from /admin-portal, since none of this is something
+// FitNexus-the-product can observe on its own. This is what turns the
+// overview's revenue number (MRR, from Organization/SubscriptionEvent)
+// into an actual profit picture — see PlatformAdminService.overview's
+// profitInr/monthlyRecurringExpenseInr.
+model PlatformExpense {
+  id         String                    @id @default(cuid())
+  category   PlatformExpenseCategory
+  label      String
+  amountInr  Decimal                   @db.Decimal(10, 2)
+  frequency  PlatformExpenseFrequency
+  incurredAt DateTime
+  notes      String?
+  createdAt  DateTime                  @default(now())
+  updatedAt  DateTime                  @updatedAt
+
+  @@index([category])
+  @@map("platform_expenses")
+}
